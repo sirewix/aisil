@@ -1,162 +1,117 @@
-use super::*;
+#![allow(clippy::bool_assert_comparison)]
+use crate::{ImplsApiMethod, define_api, mk_handler};
+use documented::DocumentedOpt;
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use serde::{Serialize, Deserialize};
-use schemars::JsonSchema;
 use ts_rs::TS;
 
-struct SomeAPI;
+pub type Err = String;
 
-type Err = i32;
-
-type Res<A> = Result<A, Err>;
+pub type Res<A> = Result<A, Err>;
 
 #[derive(Clone, Serialize, Deserialize, JsonSchema, TS)]
-struct GetA;
+pub struct GetA;
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema, TS)]
-struct PostA(bool);
+#[derive(Clone, Serialize, Deserialize, JsonSchema, TS, DocumentedOpt)]
+pub struct PostA(pub bool);
 
-define_api! { SomeAPI, "Some api", "Some example api" => Err {
-  "get_a", GetA => bool : "Get A";
-  "post_a", PostA => () : "Post A";
+/// Some example api
+#[derive(DocumentedOpt)]
+pub struct SomeAPI;
+
+define_api! { SomeAPI => {
+  /// Get A
+  get_a, GetA => bool;
+  post_a, PostA => Res<()>;
 } }
 
-#[cfg(feature = "axum")]
-#[derive(Clone)]
-struct SomeBackend {
+#[derive(DocumentedOpt)]
+pub struct SomeAPI2;
+
+define_api! { SomeAPI2 => {
+  get_b, GetA => bool;
+} }
+
+#[derive(Clone, Serialize, Deserialize, JsonSchema, TS, DocumentedOpt)]
+#[allow(dead_code)]
+pub struct GetB;
+
+#[derive(Clone, Default)]
+pub struct SomeBackend {
   a: Arc<Mutex<bool>>,
 }
 
-#[cfg(feature = "axum")]
 impl SomeBackend {
-  pub async fn get_a(&self, _: GetA) -> Res<bool> {
-    Ok(self.a.lock().await.clone())
+  pub async fn get_a(&self, _: GetA) -> bool {
+    *self.a.lock().await
   }
   pub async fn post_a(&self, PostA(new_a): PostA) -> Res<()> {
     let mut a = self.a.lock().await;
+    (!*a).then_some(()).ok_or("can't post `a` anymore".to_owned())?;
     *a = new_a;
     Ok(())
   }
+  pub async fn get_b(&self, _: GetA) -> bool {
+    true
+  }
 }
 
+mk_handler! {SomeAPI, SomeBackend => {
+  get_a : GetA,
+  post_a : PostA,
+}}
+
+// one backend can implement multiple APIs and some Methods may be in both of
+// them. in this case use .call_api_x::<SomeAPI2, _>(req) to specify which API
+// to use.
+mk_handler! {SomeAPI2, SomeBackend => {
+  get_b : GetA,
+}}
+
 #[cfg(feature = "axum")]
-pub fn router() -> axum::Router {
-  let env = SomeBackend {
-    a: Arc::new(Mutex::new(false)),
-  };
-  mk_axum_router!(SomeAPI, env, SomeBackend => {
-    get_a : GetA,
-    post_a : PostA,
-  })
+pub fn router() -> ::axum::Router {
+  let env = SomeBackend::default();
+  crate::axum::mk_axum_router::<SomeAPI, SomeBackend>().with_state(env)
+}
+
+#[tokio::test]
+async fn direct_api_call() {
+  use crate::CallApi;
+  let backend = SomeBackend::default();
+  backend.call_api(PostA(true)).await.unwrap().unwrap();
+  let new_a = backend.call_api_x::<SomeAPI2, _>(GetA).await.unwrap();
+  assert_eq!(new_a, true);
+  assert!(backend.call_api(PostA(true)).await.unwrap().is_err());
 }
 
 #[cfg(all(feature = "reqwest", feature = "axum"))]
 #[tokio::test]
-async fn flow() {
-  use std::net::SocketAddr;
+async fn axum_reqwest() {
+  use crate::reqwest::ApiClient;
   use std::net::Ipv4Addr;
+  use tokio::time::{Duration, sleep};
 
-  let server = axum::Server::bind(&SocketAddr::from((Ipv4Addr::LOCALHOST, 0)))
-    .serve(router().into_make_service());
+  let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
+  let server = ::axum::serve(listener, router());
 
   let client: ApiClient<SomeAPI> = ApiClient::new(
-    reqwest::Url::parse(&format!("http://{}/", server.local_addr())).unwrap(),
-    reqwest::Client::new()
-  );
+    reqwest::Url::parse(&format!("http://{}/", server.local_addr().unwrap())).unwrap(),
+    reqwest::Client::new(),
+  )
+  .unwrap();
 
-  // Prepare some signal for when the server should start shutting down...
-  let (tx, rx) = tokio::sync::oneshot::channel::<()>();
-  let graceful = server
-    .with_graceful_shutdown(async {
-        rx.await.ok();
-    });
-
-  tokio::spawn(async move {
-    graceful.await.unwrap();
+  let server_thread = tokio::spawn(async move {
+    server.await.unwrap();
   });
-  use tokio::time::{sleep, Duration};
+
   sleep(Duration::from_millis(100)).await;
 
   client.call_api(PostA(true)).await.unwrap().unwrap();
-  let new_a = client.call_api(GetA).await.unwrap().unwrap();
+  let new_a = client.call_api(GetA).await.unwrap();
   assert_eq!(new_a, true);
+  assert!(client.call_api(PostA(true)).await.unwrap().is_err());
 
-  let _ = tx.send(());
-}
-
-#[cfg(feature = "openapi-yaml")]
-#[test]
-fn openapi() {
-  use serde_yaml::Value;
-
-  let spec = serde_yaml::to_value(&gen_schema::<SomeAPI>()).unwrap();
-  let spec_ref: Value = serde_yaml::from_str(r#"
-    openapi: 3.1.0
-    info:
-      title: Some api
-      summary: Some example api
-      version: '0'
-    paths:
-      get_a:
-        post:
-          summary: Get A
-          requestBody:
-            content:
-              application/json:
-                schema:
-                  type: 'null'
-            required: true
-          responses:
-            default:
-              description: Successfull response
-              content:
-                application/json:
-                  schema:
-                    oneOf:
-                    - type: object
-                      required:
-                      - Ok
-                      properties:
-                        Ok:
-                          type: boolean
-                    - type: object
-                      required:
-                      - Err
-                      properties:
-                        Err:
-                          type: integer
-                          format: int32
-      post_a:
-        post:
-          summary: Post A
-          requestBody:
-            content:
-              application/json:
-                schema:
-                  type: boolean
-            required: true
-          responses:
-            default:
-              description: Successfull response
-              content:
-                application/json:
-                  schema:
-                    oneOf:
-                    - type: object
-                      required:
-                      - Ok
-                      properties:
-                        Ok:
-                          type: 'null'
-                    - type: object
-                      required:
-                      - Err
-                      properties:
-                        Err:
-                          type: integer
-                          format: int32
-    components: {}
-    "#).unwrap();
-  assert_eq!(spec, spec_ref);
+  server_thread.abort();
 }

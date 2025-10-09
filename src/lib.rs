@@ -1,349 +1,331 @@
+//! A lightweight framework to define APIs as types.
+//!
+//! The **core functionality** of this crate is to define APIs as types bound by
+//! traits. Based on these definitions it is possible to reason about an API
+//! from different perspectives: derive, type check and much more.
+//!
+//! - A **method** is defined as `Request` → (method name, `Response`)
+//!   dependency (See [`ApiMethod`]).
+//!
+//! - An **API** is defined as `ApiMetaType` → `[*]` dependency (See [`IsApi`]),
+//!   where `[*]` is a heterogeneous list of request types that belong to the
+//!   API.
+//!
+//! You can define these traits manually, but you should use [`define_api`]
+//! macro instead.
+//!
+//! The **extra functionality** of this crate is to provide some tools to build
+//! implementors of APIs and some basic middleware/combinators for those
+//! implementors.
+//!
+//! - An **implementor** is a type that implements an API via
+//!   [`ImplsApiMethod`].  The `ImplsApiMethod` trait is somewhat similar to
+//!   `tower::Service` and other similar traits. It is possible to use only the
+//!   **core functionality** of this crate in combination with any "service
+//!   trait". But since `tower` is quite old and low-level and there's no
+//!   established industry standards alternatives, this crate uses
+//!   `ImplsApiMethod` to define the extra functionality.
+
+#![cfg_attr(all(doc, not(doctest)), feature(doc_auto_cfg))]
+#![allow(non_camel_case_types)] // FIXME
+
+use core::future::Future;
+use core::pin::Pin;
+
+#[cfg(feature = "axum")]
+pub mod axum;
+pub mod combinator;
+#[cfg(feature = "openapi")]
+pub mod openapi;
 #[cfg(feature = "reqwest")]
-use std::marker::PhantomData;
-#[cfg(feature = "openapi")]
-use aide::openapi::*;
-#[cfg(feature = "openapi")]
-use schemars::{
-  gen::{SchemaGenerator, SchemaSettings},
-  JsonSchema,
-};
-#[cfg(feature = "openapi")]
-use indexmap::IndexMap;
+pub mod reqwest;
+#[cfg(feature = "ts")]
+pub mod ts;
+// pub mod func;
+
+#[doc(hidden)]
+pub mod internal {
+  pub use documented::DocumentedOpt;
+  pub use paste::paste;
+  pub use trait_set::trait_set;
+}
+
 #[cfg(test)]
 mod test;
 
+/// API definition as a type. Use [`define_api`] macro to define this impl.
+pub trait IsApi {
+  /// Heterogeneous list of all request types (which are also methods).
+  type MethodList;
+  /// Name of the API. Currently is set to stringified API type name.
+  const NAME: &str;
+}
+
+/// Type dependency from a request (input) to a response (output).
+/// Use [`define_api`] macro to define this impl.
+pub trait ApiMethod<API> {
+  type Res;
+  const NAME: &str;
+}
+
+/// Generalization over an asyncronous function bound by an API definition.
+/// Similar to `tower::Service` but associated types are defined in the API
+/// definition instead of the trait itself.
+pub trait ImplsApiMethod<API, M: ApiMethod<API>>: ImplsApi<API> {
+  fn call_api(
+    &self,
+    _req: M,
+  ) -> impl Future<Output = Result<M::Res, <Self as ImplsApi<API>>::Err>> + Send;
+}
+
+impl<API, M, B> ImplsApiMethod<API, M> for Box<B>
+where
+  API: IsApi,
+  M: ApiMethod<API> + Send,
+  B: ImplsApiMethod<API, M>,
+{
+  fn call_api(
+    &self,
+    req: M,
+  ) -> impl Future<Output = Result<M::Res, <Self as ImplsApi<API>>::Err>> + Send {
+    self.as_ref().call_api(req)
+  }
+}
+
+impl<API, M, B> ImplsApiMethod<API, M> for std::sync::Arc<B>
+where
+  API: IsApi,
+  M: ApiMethod<API> + Send,
+  B: ImplsApiMethod<API, M>,
+{
+  fn call_api(
+    &self,
+    req: M,
+  ) -> impl Future<Output = Result<M::Res, <Self as ImplsApi<API>>::Err>> + Send {
+    self.as_ref().call_api(req)
+  }
+}
+
+/// Same as [`ImplsApiMethod`] but dyn-compatible
+#[allow(clippy::type_complexity)]
+pub trait ImplsApiMethodBoxed<API, M: ApiMethod<API>>: ImplsApi<API> + Sync {
+  #[must_use]
+  fn call_api_box<'s, 'a>(
+    &'s self,
+    _req: M,
+  ) -> Pin<Box<dyn Future<Output = Result<M::Res, <Self as ImplsApi<API>>::Err>> + Send + 'a>>
+  where
+    's: 'a,
+    Self: 'a,
+    API: 'a,
+    M: 'a;
+}
+
+impl<API, M, B> ImplsApiMethodBoxed<API, M> for B
+where
+  B: ImplsApiMethod<API, M> + Sync,
+  M: ApiMethod<API>,
+{
+  fn call_api_box<'s, 'a>(
+    &'s self,
+    req: M,
+  ) -> Pin<Box<dyn Future<Output = Result<M::Res, <Self as ImplsApi<API>>::Err>> + Send + 'a>>
+  where
+    's: 'a,
+    Self: 'a,
+    API: 'a,
+    M: 'a,
+  {
+    Box::pin(self.call_api(req))
+  }
+}
+
+/// Helper trait to allow pretty type applications that [`ImplsApiMethod`] does
+/// not allow. You may need it when one request belongs to two APIs and a
+/// backend implements both of them. You should not reuse requests in different
+/// APIs but in case you do, this would be helpful.
+pub trait CallApi {
+  fn call_api_x<API, Req>(
+    &self,
+    req: Req,
+  ) -> impl Future<Output = Result<Req::Res, <Self as ImplsApi<API>>::Err>> + Send
+  where
+    Req: ApiMethod<API>,
+    Self: ImplsApiMethod<API, Req>;
+}
+
+impl<E> CallApi for E {
+  fn call_api_x<API, Req: ApiMethod<API>>(
+    &self,
+    req: Req,
+  ) -> impl Future<Output = Result<Req::Res, <Self as ImplsApi<API>>::Err>> + Send
+  where
+    Self: ImplsApiMethod<API, Req>,
+  {
+    self.call_api(req)
+  }
+}
+
+/// Supertrait for [`ImplsApiMethod`]. Needed to define common error for an API
+/// implementor.
+pub trait ImplsApi<API> {
+  type Err;
+}
+
+impl<API: IsApi, B: ImplsApi<API>> ImplsApi<API> for Box<B> {
+  type Err = B::Err;
+}
+
+// TODO: add std or no-std feature
+impl<API: IsApi, B: ImplsApi<API>> ImplsApi<API> for std::sync::Arc<B> {
+  type Err = B::Err;
+}
+
+// use frunk::HList maybe?
+pub struct Cons<T, N>(T, N);
+pub struct Nil;
+
 #[macro_export]
+#[doc(hidden)]
 macro_rules! def_method {
-  {$api:ty, $req:ty, $res:ty, $desc:expr, $method:expr} => {
-      impl $crate::ApiMethod<$api> for $req {
-        type Res = $res;
-        const NAME: &'static str = $method;
-        const DESCRIPTION: &'static str = $desc;
-      }
+  {$api:ty, $method:ident, $req:ty, $res:ty} => {
   }
 }
 
 #[macro_export]
+#[doc(hidden)]
 macro_rules! build_hlist {
   () => { $crate::Nil };
   ($type:ty $(, $rest:ty)*) => { $crate::Cons<$type, $crate::build_hlist!($($rest),*)> };
 }
 
+/// Main macro to define APIs in `aisil` format.
+///
+/// ```
+/// pub struct SomeAPI;
+///
+/// aisil::define_api! { pub SomeAPI => {
+///   // /// method description
+///   // method_name, RequestType => ResponseType;
+///
+///   /// Get A
+///   get_a, GetA => bool;
+///
+///   // not documented method
+///   post_a, PostA => Result<(), ()>;
+/// } }
+///
+/// pub struct GetA;
+/// pub struct PostA(pub bool);
+/// # fn main() {} // https://github.com/rust-lang/rust/issues/130274
+/// ```
+///
+/// This macro generates
+/// - [`IsApi`] impl for the API type.
+/// - [`ApiMethod`] impl for each request type.
+/// - Custom `ImplsApiName` trait alias with [`ImplsApiMethod`] supertraits for
+///   each method. Useful for dependency inversion.
+/// - Custom `ImplsApiNameBoxed` trait alias with [`ImplsApiMethodBoxed`]
+///   supertraits for each method. Useful for dependency injection.
+/// - Custom `per_ApiName_method` macro in case you need to derive something
+///   based on the API but cannot do that based solely on types and traits. This
+///   is advanced experimental feature that you probably will not need. In case
+///   you do, see the source code.
 #[macro_export]
 macro_rules! define_api {
-  {  $api:ty, $name:expr, $api_desc:expr => $err:ty { $($method:expr, $req:ty => $res:ty : $desc:expr;)+ }} => (
-      $( $crate::def_method!{$api, $req, Result<$res, $err>, $desc, $method} )+
-
+  { $vis:vis $api:ident => { $(
+    $( #[doc = $doc0:expr] $( #[doc = $doc:expr] )* )?
+    $method:ident, $req:ty => $res:ty;
+  )+ }} => {
       impl $crate::IsApi for $api {
         type MethodList = $crate::build_hlist!($($req),+);
-        const NAME: &'static str = $name;
-        const DESCRIPTION: &'static str = $api_desc;
+        const NAME: &str = stringify!($api);
       }
-  );
-}
 
-#[macro_export]
-macro_rules! impl_method {
-  ($api:ty : $func:ident : $p:pat = $req:ty => $body: expr) => (
-    pub async fn $func($p: $req) -> <$req as $crate::ApiMethod<$api>>::Res {
-      $body
-    }
-  )
-}
-
-#[macro_export]
-macro_rules! impl_env_method {
-  ($api:ty : $func:ident : $p:pat = $req:ty => $body: expr) => (
-    pub async fn $func($p: $req) -> <$req as $crate::ApiMethod<$api>>::Res {
-      $body
-    }
-  )
-}
-
-#[cfg(feature = "axum")]
-#[macro_export]
-macro_rules! mk_axum_router {
-  ($api:ty, $env:expr, $envt:ty => { $($func:ident : $req:ty ,)+ } ) => (
-    axum::Router::new()
-      $( .route(
-            &format!("/{}", <$req as $crate::ApiMethod<$api>>::NAME),
-            axum::routing::post(|
-              axum::extract::State(env): axum::extract::State<$envt>,
-              axum::extract::Json(request): axum::extract::Json<$req>
-            | async move {
-                axum::extract::Json(
-                  (env.$func(request).await.map_err(Into::into))
-                   as <$req as $crate::ApiMethod<$api>>::Res
-              )})
-      ) )+
-      .with_state($env.to_owned())
-  )
-}
-
-#[cfg(feature = "reqwest")]
-pub struct ApiClient<API> {
-  base_url: reqwest::Url,
-  client: reqwest::Client,
-  api_marker: PhantomData<API>
-}
-
-#[cfg(feature = "reqwest")]
-impl<API> Clone for ApiClient<API> {
-    fn clone(&self) -> Self {
-      ApiClient {
-        base_url: self.base_url.clone(),
-        client: self.client.clone(),
-        api_marker: PhantomData,
-      }
-    }
-}
-
-#[cfg(feature = "reqwest")]
-impl<API> ApiClient<API> {
-  pub fn new(base_url: reqwest::Url, client: reqwest::Client) -> Self {
-    ApiClient {
-      base_url,
-      client,
-      api_marker: PhantomData,
-    }
-  }
-
-  pub async fn call_api<
-    Req: ApiMethod<API, Res = Res> + serde::Serialize,
-    Res: for<'a> serde::Deserialize<'a>,
-  >(
-    &self,
-    req: Req,
-  ) -> Result<Res, reqwest::Error> {
-    Ok(
-      self
-        .client
-        .post(self.base_url.join(<Req as ApiMethod<API>>::NAME).unwrap())
-        .json(&req)
-        .send()
-        .await?
-        .json::<<Req as ApiMethod<API>>::Res>()
-        .await?,
-    )
-  }
-}
-
-pub trait IsApi {
-  type MethodList;
-  const DESCRIPTION: &'static str;
-  const NAME: &'static str;
-}
-
-pub trait ApiMethod<I> {
-  type Res;
-  const DESCRIPTION: &'static str;
-  const NAME: &'static str;
-}
-
-pub struct Cons<T, N> (T, N);
-pub struct Nil {}
-
-#[cfg(feature = "openapi")]
-pub trait InsertPathItems<API> {
-  fn insert_path_item(
-    paths: &mut IndexMap<String, ReferenceOr<PathItem>>,
-    gen: &mut SchemaGenerator,
-  );
-}
-
-#[cfg(feature = "openapi")]
-impl <
-  T: ApiMethod<API, Res = Res> + JsonSchema,
-  Res: JsonSchema,
-  API,
-  N: InsertPathItems<API>
-  > InsertPathItems<API> for Cons<T, N> {
-  fn insert_path_item(
-    paths: &mut IndexMap<String, ReferenceOr<PathItem>>,
-    gen: &mut SchemaGenerator,
-  ) {
-    let req_schema = T::json_schema(gen);
-    let res_schema = Res::json_schema(gen);
-
-    paths.insert(<T as ApiMethod::<API>>::NAME.to_string(), ReferenceOr::Item(
-        PathItem {
-          post: Some(Operation {
-            summary: Some(<T as ApiMethod::<API>>::DESCRIPTION.to_string()),
-            request_body: Some(ReferenceOr::Item(
-              RequestBody {
-                required: true,
-                content: IndexMap::from_iter([("application/json".into(),
-                  MediaType {
-                    schema: Some(SchemaObject {
-                        json_schema: req_schema,
-                        example: None,
-                        external_docs: None,
-                    }), ..Default::default()
-                  },
-                )]), ..RequestBody::default()
-              }
-            )),
-            responses: Some (Responses {
-              default: Some(ReferenceOr::Item(
-                Response {
-                  description: "Successfull response".into(),
-                  content: IndexMap::from_iter([("application/json".into(),
-                    MediaType {
-                      schema: Some(SchemaObject {
-                          json_schema: res_schema,
-                          example: None,
-                          external_docs: None,
-                      }), ..Default::default()
-                    },
-                  )]), ..Default::default()
-                }
-              )), ..Default::default()
-            }), ..Operation::default()
-          }), ..PathItem::default()
+      // per method ApiMethod impls
+      $(
+        impl $crate::ApiMethod<$api> for $req {
+          type Res = $res;
+          const NAME: &str = stringify!($method);
         }
-    ));
+        $(
+          impl $crate::internal::DocumentedOpt for $req {
+            const DOCS: Option<&str> = Some(concat!($doc0, $($doc, "\n"),*).trim_ascii());
+          }
+        )?
+      )+
 
-    N::insert_path_item(paths, gen);
-  }
-}
+      $crate::internal::paste! {
+        // creating custom macro for the api to give users unlimited extendability powers
+        #[allow(unused_macros)]
+        macro_rules! [<per_ $api _method>] {
+          ($m:path) => {
+            $m!{$vis $api, $(($method, $req)),*}
+          }
+        }
 
-#[cfg(feature = "openapi")]
-impl<API> InsertPathItems<API> for Nil {
-  fn insert_path_item(
-    _paths: &mut IndexMap<String, ReferenceOr<PathItem>>,
-    _gen: &mut SchemaGenerator,
-  ) { }
-}
+        // the module trick here because there's no easy way to put #[allow(dead_code)]
+        // on trait aliases with `trait_set`
+        #[doc(hidden)]
+        #[allow(non_snake_case)]
+        $vis mod [<$api _default_trait_aliases>] {
+          #![allow(dead_code)]
+          use super::*;
+          // using that custom macro to derive two default trait aliases
+          [<per_ $api _method>]!($crate::mk_impls_api_method_trait_alias);
+          [<per_ $api _method>]!($crate::mk_impls_api_method_boxed_trait_alias);
+        }
 
-#[cfg(feature = "openapi")]
-pub fn gen_schema<API>() -> OpenApi
-where
-  API::MethodList: InsertPathItems<API>,
-  API: IsApi,
-{
-  let mut gen = SchemaGenerator::new(SchemaSettings::draft07().with(|s| {
-    s.definitions_path = "#/components/schemas/".into();
-  }));
-  let mut paths = IndexMap::new();
-  API::MethodList::insert_path_item(&mut paths, &mut gen);
-  OpenApi {
-    info: Info {
-      title: API::NAME.into(),
-      version: "0".into(),
-      summary: Some(API::DESCRIPTION.into()),
-      ..Default::default()
-    },
-    paths: Some(Paths {
-      paths: paths,
-      ..Default::default()
-    }),
-    components: Some(Components {
-      schemas: gen
-        .take_definitions()
-        .into_iter()
-        .map(|(k, v)| {
-          (
-            k,
-            SchemaObject {
-              json_schema: v,
-              example: None,
-              external_docs: None,
-            },
-          )
-        })
-        .collect(),
-      ..Default::default()
-    }),
-    ..Default::default()
-  }
-}
-
-#[cfg(feature = "openapi-yaml")]
-pub fn gen_yaml_openapi<API>() -> String
-where
-  API::MethodList: InsertPathItems<API>,
-  API: IsApi,
-{
-  serde_yaml::to_string(&gen_schema::<API>()).unwrap()
-}
-
-#[cfg(feature = "ts")]
-use ts_rs::TS;
-
-#[cfg(feature = "ts")]
-pub struct TsMethod {
-  pub method_name: String,
-  pub request_type: String,
-  pub response_type: String,
-}
-
-#[cfg(feature = "ts")]
-pub struct TsApi {
-  pub types: Vec<String>,
-  pub methods: Vec<TsMethod>,
-}
-
-#[cfg(feature = "ts")]
-pub trait TraverseTsClient<API> {
-  fn add_methods(ts_api: &mut TsApi);
-}
-
-#[cfg(feature = "ts")]
-impl<API> TraverseTsClient<API> for Nil {
-  fn add_methods(_ts_api: &mut TsApi) {}
-}
-
-#[cfg(feature = "ts")]
-impl <
-  T: ApiMethod<API, Res = Result<Res, Err>> + TS,
-  Err: TS,
-  Res: TS,
-  API,
-  N: TraverseTsClient<API>
-  > TraverseTsClient<API> for Cons<T, N> {
-  fn add_methods(ts_api: &mut TsApi) {
-    ts_api.methods.push(TsMethod {
-      method_name: <T as ApiMethod<API>>::NAME.into(),
-      request_type: <T as TS>::inline(),
-      response_type: format!("Result<{}, {}>", <Res as TS>::inline(), <Err as TS>::inline()),
-    });
-    N::add_methods(ts_api);
-  }
-}
-
-#[cfg(feature = "ts")]
-pub fn gen_ts_api<API>() -> String
-where
-  API::MethodList: TraverseTsClient<API>,
-  API: IsApi,
-{
-  let mut ts_api = TsApi {
-    types: Vec::new(),
-    methods: Vec::new(),
+        #[allow(unused_imports)]
+        $vis use [<$api _default_trait_aliases>]::*;
+      }
   };
-  ts_api.types.push("type Result<R, E> = {Ok: R} | {Err: E};".into());
-  API::MethodList::add_methods(&mut ts_api);
-  vec![
-    ts_api.types.join("\n"),
-    "type Request<M> = ".into(),
-    ts_api.methods.iter().map(|method| {
-      format!(
-        "  '{}' extends M ? {} :",
-        method.method_name,
-        method.request_type,
-      )
-    }).collect::<Vec<_>>().join("\n"),
-    "  void;\n".into(),
-
-    "type Response<M> = ".into(),
-    ts_api.methods.iter().map(|method| {
-      format!(
-        "  '{}' extends M ? {} :",
-        method.method_name,
-        method.response_type,
-      )
-    }).collect::<Vec<_>>().join("\n"),
-    "  void;".into(),
-  ].join("\n")
 }
 
+#[macro_export]
+#[doc(hidden)]
+macro_rules! mk_impls_api_method_trait_alias {
+	($vis:vis $api:ty, $(($n:ident, $t:ty)),*) => {
+		$crate::internal::paste! {
+			$crate::internal::trait_set! {
+        /// Trait alias for [`aisil::ImplsApiMethod`] for all methods of [`$api`]
+				$vis trait [<Impls $api>] = $($crate::ImplsApiMethod<$api, $t> + )*;
+			}
+		}
+	}
+}
+
+#[macro_export]
+#[doc(hidden)]
+macro_rules! mk_impls_api_method_boxed_trait_alias {
+	($vis:vis $api:ty, $(($n:ident, $t:ty)),*) => {
+		$crate::internal::paste! {
+			$crate::internal::trait_set! {
+        /// Trait alias for [`aisil::ImplsApiMethodBoxed`] for all methods of [`$api`]
+				$vis trait [<Impls $api Boxed>] = $($crate::ImplsApiMethodBoxed<$api, $t> + )*;
+			}
+		}
+	}
+}
+
+// TODO: add mk_impls_api_method_tower_trait_alias for tower::Service
+
+// experimental
+#[doc(hidden)]
+#[macro_export]
+macro_rules! mk_handler {
+  ($(< $c:tt >)? $api:ty, $envt:ty => { $($func:ident : $req:ty ,)+ } ) => (
+      impl $(<$c>)? $crate::ImplsApi<$api> for $envt {
+        type Err = core::convert::Infallible;
+      }
+      $(
+        impl $crate::ImplsApiMethod<$api, $req> for $envt {
+          async fn call_api(&self, req: $req) ->
+            Result<<$req as $crate::ApiMethod<$api>>::Res, <$envt as $crate::ImplsApi<$api>>::Err>
+          {
+            Ok(self.$func(req).await)
+          }
+        }
+      )+
+  )
+}

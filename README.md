@@ -20,22 +20,27 @@ Note: every feature is optional, see [`Cargo.toml`](./Cargo.toml) for features r
 ## Define API
 
 ```rust
-struct SomeAPI;
-
-type Err = i32;
-
-type Res<A> = Result<A, Err>;
-
+/// Get A
 #[derive(Clone, Serialize, Deserialize, JsonSchema, TS)]
-struct GetA;
+pub struct GetA;
 
+// not documented
 #[derive(Clone, Serialize, Deserialize, JsonSchema, TS)]
-struct PostA(bool);
+pub struct PostA(pub bool);
 
-define_api! { SomeAPI, "Some api", "Some example api" => Err {
-  "get_a", GetA => bool : "Get A";
-  "post_a", PostA => () : "Post A";
+/// Some example api
+#[derive(DocumentedOpt)]
+pub struct SomeAPI;
+
+define_api! { SomeAPI => {
+  /// Get A
+  get_a, GetA => bool;
+  // not documented method
+  post_a, PostA => Res<()>;
 } }
+
+#[derive(DocumentedOpt)]
+pub struct SomeAPI2;
 ```
 
 ## Implement handler
@@ -59,14 +64,16 @@ impl SomeBackend {
   }
 }
 
+mk_handler! {SomeAPI, SomeBackend => {
+  get_a : GetA,
+  post_a : PostA,
+}}
+
 pub fn router() -> axum::Router {
   let env = SomeBackend {
     a: Arc::new(Mutex::new(false)),
   };
-  mk_axum_router!(SomeAPI, env, SomeBackend => {
-    get_a : GetA,
-    post_a : PostA,
-  })
+  crate::axum::mk_axum_router::<SomeAPI, SomeBackend>().with_state(env)
 }
 ```
 
@@ -99,16 +106,14 @@ println!("{}", gen_ts_api::<SomeAPI>());
 Current implementation works by inlining everything, which is probably undesirable:
 
 ```ts
-type Result<R, E> = {Ok: R} | {Err: E};
-
 type Request<M> =
-  'get_a' extends M ? null :
-  'post_a' extends M ? boolean :
+  M extends 'get_a' ? null :
+  M extends 'post_a' ? boolean :
   void;
 
 type Response<M> =
-  'get_a' extends M ? Result<boolean, number> :
-  'post_a' extends M ? Result<null, number> :
+  M extends 'get_a' ? Result<boolean, number> :
+  M extends 'post_a' ? Result<null, number> :
   void;
 ```
 
