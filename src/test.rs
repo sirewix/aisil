@@ -80,10 +80,10 @@ pub fn router() -> ::axum::Router {
 async fn direct_api_call() {
   use crate::CallApi;
   let backend = SomeBackend::default();
-  backend.call_api(PostA(true)).await.unwrap().unwrap();
-  let new_a = backend.call_api_x::<SomeAPI2, _>(GetA).await.unwrap();
+  let () = backend.call_api(PostA(true)).await.unwrap();
+  let new_a = backend.call_api_x::<SomeAPI2, _>(GetA).await;
   assert_eq!(new_a, true);
-  assert!(backend.call_api(PostA(true)).await.unwrap().is_err());
+  assert!(backend.call_api(PostA(true)).await.is_err());
 }
 
 #[cfg(all(feature = "reqwest", feature = "axum"))]

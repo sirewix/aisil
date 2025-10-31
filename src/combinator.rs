@@ -7,6 +7,9 @@ pub use ignore::*;
 pub mod err_into;
 pub use err_into::*;
 
+pub mod with_err;
+pub use with_err::*;
+
 #[cfg(feature = "tokio")]
 pub mod fork_and_forget;
 #[cfg(feature = "tokio")]

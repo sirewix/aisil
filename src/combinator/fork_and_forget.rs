@@ -1,6 +1,5 @@
 //! Spawn a new tokio task.
-use crate::{ApiMethod, ImplsApi, ImplsApiMethod, IsApi};
-use std::convert::Infallible;
+use crate::{ApiMethod, ImplsApiMethod, IsApi};
 
 /// Spawns a new tokio task.
 ///
@@ -10,34 +9,32 @@ use std::convert::Infallible;
 /// **Implementor** combinator.
 #[derive(Debug, Clone, Copy)]
 #[repr(transparent)]
-pub struct ForkAndForget<E>(pub E);
+pub struct ForkAndForget<B>(pub B);
 
-impl<API: IsApi, E: ImplsApi<API>> ImplsApi<API> for ForkAndForget<E> {
-  type Err = Infallible;
-}
-
-impl<API: IsApi, E, Req> ImplsApiMethod<API, Req> for ForkAndForget<E>
+impl<API: IsApi, B, Req> ImplsApiMethod<API, Req> for ForkAndForget<B>
 where
-  E::Err: Send + 'static,
-  E: Clone + Send + Sync + 'static,
-  E: ImplsApiMethod<API, Req>,
+  B: Clone + Send + Sync + 'static,
+  B: ImplsApiMethod<API, Req>,
   Req: ApiMethod<API, Res = ()> + Send + 'static,
 {
-  async fn call_api(&self, req: Req) -> Result<(), Infallible> {
-    let inner: E = self.0.clone();
+  async fn call_api(&self, req: Req) {
+    let inner: B = self.0.clone();
     tokio::spawn(async move { inner.call_api(req).await });
-    Ok(())
   }
 }
 
-#[tokio::test]
-async fn test_fork_and_forget() {
-  use crate::CallApi;
-  use crate::combinator::IgnoreErr;
-  use crate::test::{GetA, PostA, SomeAPI, SomeBackend};
-  let backend = ForkAndForget(IgnoreErr(SomeBackend::default()));
-  let Ok(()) = backend.call_api(PostA(true)).await;
-  tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-  let Ok(a) = backend.0.0.call_api_x::<SomeAPI, _>(GetA).await;
-  assert!(a);
+#[cfg(test)]
+mod test {
+  #[tokio::test]
+  async fn fork_and_forget() {
+    use super::*;
+    use crate::CallApi;
+    use crate::combinator::IgnoreRes;
+    use crate::test::{GetA, PostA, SomeAPI, SomeBackend};
+    let backend = ForkAndForget(IgnoreRes(SomeBackend::default()));
+    let () = backend.call_api(PostA(true)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    let a = backend.0.0.call_api_x::<SomeAPI, _>(GetA).await;
+    assert!(a);
+  }
 }

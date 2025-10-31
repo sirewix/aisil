@@ -26,7 +26,7 @@
 //!   established industry standards alternatives, this crate uses
 //!   `ImplsApiMethod` to define the extra functionality.
 
-#![cfg_attr(all(doc, not(doctest)), feature(doc_auto_cfg))]
+#![cfg_attr(all(doc, not(doctest)), feature(doc_cfg))]
 #![allow(non_camel_case_types)] // FIXME
 
 use core::future::Future;
@@ -71,11 +71,8 @@ pub trait ApiMethod<API> {
 /// Generalization over an asyncronous function bound by an API definition.
 /// Similar to `tower::Service` but associated types are defined in the API
 /// definition instead of the trait itself.
-pub trait ImplsApiMethod<API, M: ApiMethod<API>>: ImplsApi<API> {
-  fn call_api(
-    &self,
-    _req: M,
-  ) -> impl Future<Output = Result<M::Res, <Self as ImplsApi<API>>::Err>> + Send;
+pub trait ImplsApiMethod<API, M: ApiMethod<API>> {
+  fn call_api(&self, _req: M) -> impl Future<Output = M::Res> + Send;
 }
 
 impl<API, M, B> ImplsApiMethod<API, M> for Box<B>
@@ -84,10 +81,7 @@ where
   M: ApiMethod<API> + Send,
   B: ImplsApiMethod<API, M>,
 {
-  fn call_api(
-    &self,
-    req: M,
-  ) -> impl Future<Output = Result<M::Res, <Self as ImplsApi<API>>::Err>> + Send {
+  fn call_api(&self, req: M) -> impl Future<Output = M::Res> + Send {
     self.as_ref().call_api(req)
   }
 }
@@ -98,22 +92,16 @@ where
   M: ApiMethod<API> + Send,
   B: ImplsApiMethod<API, M>,
 {
-  fn call_api(
-    &self,
-    req: M,
-  ) -> impl Future<Output = Result<M::Res, <Self as ImplsApi<API>>::Err>> + Send {
+  fn call_api(&self, req: M) -> impl Future<Output = M::Res> + Send {
     self.as_ref().call_api(req)
   }
 }
 
 /// Same as [`ImplsApiMethod`] but dyn-compatible
 #[allow(clippy::type_complexity)]
-pub trait ImplsApiMethodBoxed<API, M: ApiMethod<API>>: ImplsApi<API> + Sync {
+pub trait ImplsApiMethodBoxed<API, M: ApiMethod<API>>: Sync {
   #[must_use]
-  fn call_api_box<'s, 'a>(
-    &'s self,
-    _req: M,
-  ) -> Pin<Box<dyn Future<Output = Result<M::Res, <Self as ImplsApi<API>>::Err>> + Send + 'a>>
+  fn call_api_box<'s, 'a>(&'s self, _req: M) -> Pin<Box<dyn Future<Output = M::Res> + Send + 'a>>
   where
     's: 'a,
     Self: 'a,
@@ -126,10 +114,7 @@ where
   B: ImplsApiMethod<API, M> + Sync,
   M: ApiMethod<API>,
 {
-  fn call_api_box<'s, 'a>(
-    &'s self,
-    req: M,
-  ) -> Pin<Box<dyn Future<Output = Result<M::Res, <Self as ImplsApi<API>>::Err>> + Send + 'a>>
+  fn call_api_box<'s, 'a>(&'s self, req: M) -> Pin<Box<dyn Future<Output = M::Res> + Send + 'a>>
   where
     's: 'a,
     Self: 'a,
@@ -145,40 +130,19 @@ where
 /// backend implements both of them. You should not reuse requests in different
 /// APIs but in case you do, this would be helpful.
 pub trait CallApi {
-  fn call_api_x<API, Req>(
-    &self,
-    req: Req,
-  ) -> impl Future<Output = Result<Req::Res, <Self as ImplsApi<API>>::Err>> + Send
+  fn call_api_x<API, Req>(&self, req: Req) -> impl Future<Output = Req::Res> + Send
   where
     Req: ApiMethod<API>,
     Self: ImplsApiMethod<API, Req>;
 }
 
 impl<E> CallApi for E {
-  fn call_api_x<API, Req: ApiMethod<API>>(
-    &self,
-    req: Req,
-  ) -> impl Future<Output = Result<Req::Res, <Self as ImplsApi<API>>::Err>> + Send
+  fn call_api_x<API, Req: ApiMethod<API>>(&self, req: Req) -> impl Future<Output = Req::Res> + Send
   where
     Self: ImplsApiMethod<API, Req>,
   {
     self.call_api(req)
   }
-}
-
-/// Supertrait for [`ImplsApiMethod`]. Needed to define common error for an API
-/// implementor.
-pub trait ImplsApi<API> {
-  type Err;
-}
-
-impl<API: IsApi, B: ImplsApi<API>> ImplsApi<API> for Box<B> {
-  type Err = B::Err;
-}
-
-// TODO: add std or no-std feature
-impl<API: IsApi, B: ImplsApi<API>> ImplsApi<API> for std::sync::Arc<B> {
-  type Err = B::Err;
 }
 
 // use frunk::HList maybe?
@@ -315,15 +279,17 @@ macro_rules! mk_impls_api_method_boxed_trait_alias {
 #[macro_export]
 macro_rules! mk_handler {
   ($(< $c:tt >)? $api:ty, $envt:ty => { $($func:ident : $req:ty ,)+ } ) => (
+    /*
       impl $(<$c>)? $crate::ImplsApi<$api> for $envt {
         type Err = core::convert::Infallible;
       }
+      */
       $(
         impl $crate::ImplsApiMethod<$api, $req> for $envt {
-          async fn call_api(&self, req: $req) ->
-            Result<<$req as $crate::ApiMethod<$api>>::Res, <$envt as $crate::ImplsApi<$api>>::Err>
+          async fn call_api(&self, req: $req) -> <$req as $crate::ApiMethod<$api>>::Res
+            //Result<<$req as $crate::ApiMethod<$api>>::Res, <$envt as $crate::ImplsApi<$api>>::Err>
           {
-            Ok(self.$func(req).await)
+            self.$func(req).await
           }
         }
       )+

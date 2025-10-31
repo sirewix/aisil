@@ -1,11 +1,11 @@
 //! Axum router builder.
 
-use crate::{ApiMethod, Cons, ImplsApi, ImplsApiMethod, Nil};
+use crate::{ApiMethod, Cons, ImplsApiMethod, Nil};
 use axum::{Router, extract::Json, extract::State, routing::post};
 
 /// Builds axum router where each method is `POST /<method_name>`, the request
 /// body is expected to be a json and the result is also returned as json.
-pub fn mk_axum_router<API: crate::IsApi, S: ImplsApi<API>>() -> Router<S>
+pub fn mk_axum_router<API: crate::IsApi, S>() -> Router<S>
 where
   API::MethodList: MkAxumRouter<API, S>,
 {
@@ -21,8 +21,7 @@ impl<
   API,
   H: ApiMethod<API, Res = Res> + serde::de::DeserializeOwned + Send + 'static,
   Res: serde::Serialize + Send,
-  E: ImplsApiMethod<API, H> + ImplsApi<API, Err = IE> + Clone + Send + Sync + 'static,
-  IE: axum::response::IntoResponse + Send,
+  E: ImplsApiMethod<API, H> + Clone + Send + Sync + 'static,
   T: MkAxumRouter<API, E>,
 > MkAxumRouter<API, E> for Cons<H, T>
 {
@@ -30,7 +29,7 @@ impl<
     T::router().route(
       &format!("/{}", <H as ApiMethod<API>>::NAME),
       post(|State(svc): State<E>, Json(request): Json<H>| async move {
-        svc.call_api(request).await.map(Json)
+        Json(svc.call_api(request).await)
       }),
     )
   }

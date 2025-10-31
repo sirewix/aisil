@@ -1,10 +1,48 @@
 //! Erasing API level errors.
 
-use crate::{ApiMethod, ImplsApi, ImplsApiMethod, IsApi};
+use crate::{ApiMethod, ImplsApiMethod, IsApi};
 use documented::DocumentedOpt;
 
-/// Transforming return types of all methods to `()` but preserving the
-/// implementor error.
+/// Transforming return types of all methods that must be `Result<R, E>` to
+/// `Result<(), E>`, ignoring the result in `Ok`, but preserving the `Err`.
+///
+/// Both **API** combinator and **implementor** combinator.
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(transparent)]
+#[cfg_attr(feature = "serde", serde(transparent))]
+pub struct IgnoreOk<A>(pub A);
+
+impl<API: IsApi> IsApi for IgnoreOk<API> {
+  type MethodList = API::MethodList;
+  const NAME: &str = API::NAME;
+}
+
+impl<API: IsApi, R, E, M> ApiMethod<IgnoreOk<API>> for IgnoreOk<M>
+where
+  M: ApiMethod<API, Res = Result<R, E>>,
+{
+  type Res = Result<(), E>;
+  const NAME: &str = M::NAME;
+}
+
+impl<M: DocumentedOpt> DocumentedOpt for IgnoreOk<M> {
+  const DOCS: Option<&str> = M::DOCS;
+}
+
+impl<API, B, E, M, R> ImplsApiMethod<IgnoreOk<API>, IgnoreOk<M>> for IgnoreOk<B>
+where
+  API: IsApi,
+  B: ImplsApiMethod<API, M> + Send + Sync,
+  M: ApiMethod<API, Res = Result<R, E>> + Send,
+{
+  async fn call_api(&self, req: IgnoreOk<M>) -> Result<(), E> {
+    let _ = self.0.call_api(req.0).await?;
+    Ok(())
+  }
+}
+
+/// Transforming return types of all methods to `()`.
 ///
 /// Both **API** combinator and **implementor** combinator.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -25,55 +63,13 @@ impl<M: DocumentedOpt> DocumentedOpt for IgnoreRes<M> {
   const DOCS: Option<&str> = M::DOCS;
 }
 
-impl<API: IsApi, B: ImplsApi<API>> ImplsApi<IgnoreRes<API>> for IgnoreRes<B> {
-  type Err = B::Err;
-}
-
-impl<API: IsApi, B: ImplsApi<API> + ImplsApiMethod<API, M> + Send + Sync, M: ApiMethod<API> + Send>
-  ImplsApiMethod<IgnoreRes<API>, M> for IgnoreRes<B>
-where
-  IgnoreRes<B>: ImplsApi<API>,
-{
-  async fn call_api(&self, req: M) -> Result<(), <Self as ImplsApi<IgnoreRes<API>>>::Err> {
-    let _ = self.0.call_api(req).await?;
-    Ok(())
-  }
-}
-
-/// Transforming return types of all methods to `()` and ignoring the
-/// implementor errors.
-///
-/// Both **API** combinator and **implementor** combinator.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(transparent)]
-pub struct IgnoreErr<A>(pub A);
-
-impl<API: IsApi> IsApi for IgnoreErr<API> {
-  type MethodList = API::MethodList;
-  const NAME: &str = API::NAME;
-}
-
-impl<API: IsApi, M: ApiMethod<API>> ApiMethod<IgnoreErr<API>> for M {
-  type Res = ();
-  const NAME: &str = M::NAME;
-}
-
-impl<M: DocumentedOpt> DocumentedOpt for IgnoreErr<M> {
-  const DOCS: Option<&str> = M::DOCS;
-}
-
-impl<API: IsApi, B: ImplsApi<API>> ImplsApi<IgnoreErr<API>> for IgnoreErr<B> {
-  type Err = std::convert::Infallible;
-}
-
-impl<API, B, M> ImplsApiMethod<IgnoreErr<API>, M> for IgnoreErr<B>
+impl<API, B, M> ImplsApiMethod<IgnoreRes<API>, M> for IgnoreRes<B>
 where
   API: IsApi,
   M: ApiMethod<API> + Send,
-  B: ImplsApi<API> + ImplsApiMethod<API, M> + Send + Sync,
+  B: ImplsApiMethod<API, M> + Send + Sync,
 {
-  async fn call_api(&self, req: M) -> Result<(), std::convert::Infallible> {
+  async fn call_api(&self, req: M) {
     let _ = self.0.call_api(req).await;
-    Ok(())
   }
 }

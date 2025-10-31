@@ -1,6 +1,6 @@
 //! Simple tracing combinator.
 
-use crate::{ApiMethod, ImplsApi, ImplsApiMethod, IsApi};
+use crate::{ApiMethod, ImplsApiMethod, IsApi};
 use std::fmt::Debug;
 
 /// Simple tracing combinator.
@@ -28,22 +28,18 @@ impl Default for ApiTracerConfig {
   }
 }
 
-impl<API, E: ImplsApi<API>> ImplsApi<API> for ApiTracer<E> {
-  type Err = E::Err;
-}
-
-impl<API, E, Req, Res> ImplsApiMethod<API, Req> for ApiTracer<E>
+impl<API, E, Req, Res, Err> ImplsApiMethod<API, Req> for ApiTracer<E>
 where
-  E::Err: Debug, // TODO: use Display?
+  Err: Debug, // TODO: use Display?
   E: Send + Sync,
   E: ImplsApiMethod<API, Req>,
-  Req: ApiMethod<API, Res = Res> + Send + Debug,
+  Req: ApiMethod<API, Res = Result<Res, Err>> + Send + Debug,
   Res: Debug,
   API: IsApi,
 {
   #[rustfmt::skip]
   #[tracing::instrument(skip_all, fields(API = API::NAME, method = <Req as ApiMethod<API>>::NAME))]
-  async fn call_api(&self, req: Req) -> Result<Res, E::Err> {
+  async fn call_api(&self, req: Req) -> Result<Res, Err> {
     let when = &self.0;
     if when.request { tracing::debug!("Request: {req:?}") }
     self.1.call_api(req).await
