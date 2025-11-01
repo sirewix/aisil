@@ -5,7 +5,7 @@
 //! from different perspectives: derive, type check and much more.
 //!
 //! - A **method** is defined as `Request` → (method name, `Response`)
-//!   dependency (See [`ApiMethod`]).
+//!   dependency in the context of an API (See [`HasMethod`]).
 //!
 //! - An **API** is defined as `ApiMetaType` → `[*]` dependency (See [`IsApi`]),
 //!   where `[*]` is a heterogeneous list of request types that belong to the
@@ -18,16 +18,15 @@
 //! implementors of APIs and some basic middleware/combinators for those
 //! implementors.
 //!
-//! - An **implementor** is a type that implements an API via
-//!   [`ImplsApiMethod`].  The `ImplsApiMethod` trait is somewhat similar to
-//!   `tower::Service` and other similar traits. It is possible to use only the
-//!   **core functionality** of this crate in combination with any "service
-//!   trait". But since `tower` is quite old and low-level and there's no
-//!   established industry standards alternatives, this crate uses
-//!   `ImplsApiMethod` to define the extra functionality.
+//! - An **implementor** is a type that implements an API via [`ImplsMethod`].
+//!   The `ImplsMethod` trait is somewhat similar to `tower::Service` and other
+//!   similar traits. It is possible to use only the **core functionality** of
+//!   this crate in combination with any "service trait". But since `tower` is
+//!   quite old and low-level and there's no established industry standards
+//!   alternatives, this crate uses `ImplsMethod` to define the extra
+//!   functionality.
 
-#![cfg_attr(all(doc, not(doctest)), feature(doc_cfg))]
-#![allow(non_camel_case_types)] // FIXME
+#![cfg_attr(any(docs, docsrs), feature(doc_cfg))]
 
 use core::future::Future;
 use core::pin::Pin;
@@ -58,50 +57,48 @@ pub trait IsApi {
   /// Heterogeneous list of all request types (which are also methods).
   type MethodList;
   /// Name of the API. Currently is set to stringified API type name.
-  const NAME: &str;
+  const API_NAME: &str;
 }
 
-/// Type dependency from a request (input) to a response (output).
-/// Use [`define_api`] macro to define this impl.
-pub trait ApiMethod<API> {
+pub trait HasMethod<M>: IsApi {
   type Res;
-  const NAME: &str;
+  const METHOD_NAME: &str;
 }
 
 /// Generalization over an asyncronous function bound by an API definition.
 /// Similar to `tower::Service` but associated types are defined in the API
 /// definition instead of the trait itself.
-pub trait ImplsApiMethod<API, M: ApiMethod<API>> {
-  fn call_api(&self, _req: M) -> impl Future<Output = M::Res> + Send;
+pub trait ImplsMethod<API: HasMethod<M>, M> {
+  fn call_api(&self, _req: M) -> impl Future<Output = API::Res> + Send;
 }
 
-impl<API, M, B> ImplsApiMethod<API, M> for Box<B>
+impl<API, M, B> ImplsMethod<API, M> for Box<B>
 where
-  API: IsApi,
-  M: ApiMethod<API> + Send,
-  B: ImplsApiMethod<API, M>,
+  API: IsApi + HasMethod<M>,
+  M: Send,
+  B: ImplsMethod<API, M>,
 {
-  fn call_api(&self, req: M) -> impl Future<Output = M::Res> + Send {
+  fn call_api(&self, req: M) -> impl Future<Output = API::Res> + Send {
     self.as_ref().call_api(req)
   }
 }
 
-impl<API, M, B> ImplsApiMethod<API, M> for std::sync::Arc<B>
+impl<API, M, B> ImplsMethod<API, M> for std::sync::Arc<B>
 where
-  API: IsApi,
-  M: ApiMethod<API> + Send,
-  B: ImplsApiMethod<API, M>,
+  API: IsApi + HasMethod<M>,
+  M: Send,
+  B: ImplsMethod<API, M>,
 {
-  fn call_api(&self, req: M) -> impl Future<Output = M::Res> + Send {
+  fn call_api(&self, req: M) -> impl Future<Output = API::Res> + Send {
     self.as_ref().call_api(req)
   }
 }
 
-/// Same as [`ImplsApiMethod`] but dyn-compatible
+/// Same as [`ImplsMethod`] but dyn-compatible
 #[allow(clippy::type_complexity)]
-pub trait ImplsApiMethodBoxed<API, M: ApiMethod<API>>: Sync {
+pub trait ImplsMethodBoxed<API: HasMethod<M>, M>: Sync {
   #[must_use]
-  fn call_api_box<'s, 'a>(&'s self, _req: M) -> Pin<Box<dyn Future<Output = M::Res> + Send + 'a>>
+  fn call_api_box<'s, 'a>(&'s self, _req: M) -> Pin<Box<dyn Future<Output = API::Res> + Send + 'a>>
   where
     's: 'a,
     Self: 'a,
@@ -109,12 +106,12 @@ pub trait ImplsApiMethodBoxed<API, M: ApiMethod<API>>: Sync {
     M: 'a;
 }
 
-impl<API, M, B> ImplsApiMethodBoxed<API, M> for B
+impl<API, M, B> ImplsMethodBoxed<API, M> for B
 where
-  B: ImplsApiMethod<API, M> + Sync,
-  M: ApiMethod<API>,
+  B: ImplsMethod<API, M> + Sync,
+  API: HasMethod<M>,
 {
-  fn call_api_box<'s, 'a>(&'s self, req: M) -> Pin<Box<dyn Future<Output = M::Res> + Send + 'a>>
+  fn call_api_box<'s, 'a>(&'s self, req: M) -> Pin<Box<dyn Future<Output = API::Res> + Send + 'a>>
   where
     's: 'a,
     Self: 'a,
@@ -125,21 +122,22 @@ where
   }
 }
 
-/// Helper trait to allow pretty type applications that [`ImplsApiMethod`] does
+/// Helper trait to allow pretty type applications that [`ImplsMethod`] does
 /// not allow. You may need it when one request belongs to two APIs and a
 /// backend implements both of them. You should not reuse requests in different
 /// APIs but in case you do, this would be helpful.
 pub trait CallApi {
-  fn call_api_x<API, Req>(&self, req: Req) -> impl Future<Output = Req::Res> + Send
+  fn call_api_x<API, Req>(&self, req: Req) -> impl Future<Output = API::Res> + Send
   where
-    Req: ApiMethod<API>,
-    Self: ImplsApiMethod<API, Req>;
+    API: HasMethod<Req>,
+    Self: ImplsMethod<API, Req>;
 }
 
 impl<E> CallApi for E {
-  fn call_api_x<API, Req: ApiMethod<API>>(&self, req: Req) -> impl Future<Output = Req::Res> + Send
+  fn call_api_x<API, Req>(&self, req: Req) -> impl Future<Output = API::Res> + Send
   where
-    Self: ImplsApiMethod<API, Req>,
+    API: HasMethod<Req>,
+    Self: ImplsMethod<API, Req>,
   {
     self.call_api(req)
   }
@@ -186,10 +184,10 @@ macro_rules! build_hlist {
 ///
 /// This macro generates
 /// - [`IsApi`] impl for the API type.
-/// - [`ApiMethod`] impl for each request type.
-/// - Custom `ImplsApiName` trait alias with [`ImplsApiMethod`] supertraits for
+/// - [`HasMethod`] impl for each request type.
+/// - Custom `ImplsApiName` trait alias with [`ImplsMethod`] supertraits for
 ///   each method. Useful for dependency inversion.
-/// - Custom `ImplsApiNameBoxed` trait alias with [`ImplsApiMethodBoxed`]
+/// - Custom `ImplsApiNameBoxed` trait alias with [`ImplsMethodBoxed`]
 ///   supertraits for each method. Useful for dependency injection.
 /// - Custom `per_ApiName_method` macro in case you need to derive something
 ///   based on the API but cannot do that based solely on types and traits. This
@@ -203,14 +201,14 @@ macro_rules! define_api {
   )+ }} => {
       impl $crate::IsApi for $api {
         type MethodList = $crate::build_hlist!($($req),+);
-        const NAME: &str = stringify!($api);
+        const API_NAME: &str = stringify!($api);
       }
 
-      // per method ApiMethod impls
+      // per method HasMethod impls
       $(
-        impl $crate::ApiMethod<$api> for $req {
+        impl $crate::HasMethod<$req> for $api {
           type Res = $res;
-          const NAME: &str = stringify!($method);
+          const METHOD_NAME: &str = stringify!($method);
         }
         $(
           impl $crate::internal::DocumentedOpt for $req {
@@ -252,8 +250,8 @@ macro_rules! mk_impls_api_method_trait_alias {
 	($vis:vis $api:ty, $(($n:ident, $t:ty)),*) => {
 		$crate::internal::paste! {
 			$crate::internal::trait_set! {
-        /// Trait alias for [`aisil::ImplsApiMethod`] for all methods of [`$api`]
-				$vis trait [<Impls $api>] = $($crate::ImplsApiMethod<$api, $t> + )*;
+        /// Trait alias for [`aisil::ImplsMethod`] for all methods of [`$api`]
+				$vis trait [<Impls $api>] = $($crate::ImplsMethod<$api, $t> + )*;
 			}
 		}
 	}
@@ -265,8 +263,8 @@ macro_rules! mk_impls_api_method_boxed_trait_alias {
 	($vis:vis $api:ty, $(($n:ident, $t:ty)),*) => {
 		$crate::internal::paste! {
 			$crate::internal::trait_set! {
-        /// Trait alias for [`aisil::ImplsApiMethodBoxed`] for all methods of [`$api`]
-				$vis trait [<Impls $api Boxed>] = $($crate::ImplsApiMethodBoxed<$api, $t> + )*;
+        /// Trait alias for [`aisil::ImplsMethodBoxed`] for all methods of [`$api`]
+				$vis trait [<Impls $api Boxed>] = $($crate::ImplsMethodBoxed<$api, $t> + )*;
 			}
 		}
 	}
@@ -278,16 +276,10 @@ macro_rules! mk_impls_api_method_boxed_trait_alias {
 #[doc(hidden)]
 #[macro_export]
 macro_rules! mk_handler {
-  ($(< $c:tt >)? $api:ty, $envt:ty => { $($func:ident : $req:ty ,)+ } ) => (
-    /*
-      impl $(<$c>)? $crate::ImplsApi<$api> for $envt {
-        type Err = core::convert::Infallible;
-      }
-      */
+  ($api:ty, $envt:ty => { $($func:ident : $req:ty ,)+ } ) => (
       $(
-        impl $crate::ImplsApiMethod<$api, $req> for $envt {
-          async fn call_api(&self, req: $req) -> <$req as $crate::ApiMethod<$api>>::Res
-            //Result<<$req as $crate::ApiMethod<$api>>::Res, <$envt as $crate::ImplsApi<$api>>::Err>
+        impl $crate::ImplsMethod<$api, $req> for $envt {
+          async fn call_api(&self, req: $req) -> <$api as $crate::HasMethod<$req>>::Res
           {
             self.$func(req).await
           }

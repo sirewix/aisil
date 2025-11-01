@@ -1,6 +1,6 @@
 //! Generates API definition in TypeScript language.
 
-use crate::{ApiMethod, Cons, IsApi, Nil};
+use crate::{Cons, HasMethod, IsApi, Nil};
 use ts_rs::TS;
 
 pub struct TsMethod {
@@ -22,12 +22,12 @@ impl<API> TraverseTsClient<API> for Nil {
   fn add_methods(_ts_api: &mut TsApi) {}
 }
 
-impl<T: ApiMethod<API, Res = Res> + TS, Res: TS, API, N: TraverseTsClient<API>>
-  TraverseTsClient<API> for Cons<T, N>
+impl<T: TS, Res: TS, API: HasMethod<T, Res = Res>, N: TraverseTsClient<API>> TraverseTsClient<API>
+  for Cons<T, N>
 {
   fn add_methods(ts_api: &mut TsApi) {
     ts_api.methods.push(TsMethod {
-      method_name: <T as ApiMethod<API>>::NAME.into(),
+      method_name: API::METHOD_NAME.into(),
       request_type: <T as TS>::inline(),
       response_type: <Res as TS>::inline(),
     });

@@ -1,6 +1,6 @@
 //! Client to call APIs over HTTP.
 
-use crate::{ApiMethod, ImplsApiMethod, IsApi, combinator::WithErr};
+use crate::{HasMethod, ImplsMethod, IsApi, combinator::WithErr};
 use reqwest::{Client, Error, Url};
 use std::marker::PhantomData;
 
@@ -26,15 +26,15 @@ impl<API> Clone for ApiClient<API> {
 }
 
 impl<
-  API: IsApi + Send + Sync,
-  Req: ApiMethod<API, Res = Res> + serde::Serialize + Send,
+  API: IsApi + HasMethod<Req, Res = Res> + Send + Sync,
+  Req: serde::Serialize + Send,
   Res: serde::de::DeserializeOwned,
-> ImplsApiMethod<WithErr<Error, API>, Req> for ApiClient<API>
+> ImplsMethod<WithErr<Error, API>, Req> for ApiClient<API>
 {
   async fn call_api(&self, req: Req) -> Result<Res, Error> {
     self
       .client
-      .post(self.base_url.join(<Req as ApiMethod<API>>::NAME).unwrap())
+      .post(self.base_url.join(API::METHOD_NAME).unwrap())
       .json(&req)
       .send()
       .await?

@@ -1,61 +1,73 @@
+#![allow(non_camel_case_types)]
 //! Functional composition `api_g(api_h(req))`
-//! `g.call_api(h.call_api(r).await?)`
+//! `g.call_api(h.call_api(r).await)`
 //!
-//! This is experimental feature and it requires more strict type definitions
-//! in the client code otherwise it overflows evaluating impl requirements in unexpected places.
-use crate::{ApiMethod, ImplsApi, ImplsApiMethod, IsApi};
+//! This is experimental feature.
+use crate::{HasMethod, ImplsMethod, IsApi};
 
-pub struct ComposeApi<API_G, API_H>(API_G, API_H);
+/// Functional composition `api_g(api_h(req))`
+/// `g.call_api(h.call_api(r).await)`
+///
+/// The resulting set of methods for the composed api is based on `H`.
+///
+/// Both **API** combinator and **implementor** combinator.
+pub struct Compose<API_G, API_H>(API_G, API_H);
 
-impl<API_G: IsApi, API_H: IsApi> IsApi for ComposeApi<API_G, API_H> {
+impl<API_G: IsApi, API_H: IsApi> IsApi for Compose<API_G, API_H> {
   type MethodList = API_H::MethodList;
-  const DESCRIPTION: &str = "";
-  const NAME: &str = "";
+  const API_NAME: &str = API_H::API_NAME;
+}
+
+impl<API_G, API_H, HReq> HasMethod<HReq> for Compose<API_G, API_H>
+where
+  API_H: HasMethod<HReq>,
+  API_G: HasMethod<API_H::Res>,
+{
+  type Res = API_G::Res;
+  const METHOD_NAME: &str = API_H::METHOD_NAME;
 }
 
 impl<
-  API_G: IsApi,
-  API_H: IsApi,
+  API_G: IsApi + HasMethod<GReq, Res = GRes>,
+  API_H: IsApi + HasMethod<HReq, Res = GReq>,
+  GReq,
+  HReq: Send,
   GRes,
-  HReq: ApiMethod<API_H, Res = GReq>,
-  GReq: ApiMethod<API_G, Res = GRes>,
-  //GReq: ApiMethod<API_G>,
-> ApiMethod<ComposeApi<API_G, API_H>> for HReq
+  BG: ImplsMethod<API_G, GReq> + Send + Sync,
+  BH: ImplsMethod<API_H, HReq> + Send + Sync,
+> ImplsMethod<Compose<API_G, API_H>, HReq> for Compose<BG, BH>
 {
-  type Res = GRes; //<GReq as ApiMethod<API_G>>::Res;
-  const DESCRIPTION: &str = "";
-  const NAME: &str = "";
-  fn name() -> String {
-    format!("{}.{}", <GReq as ApiMethod<API_G>>::NAME, <HReq as ApiMethod<API_H>>::NAME)
+  async fn call_api(&self, req: HReq) -> GRes {
+    self.0.call_api(self.1.call_api(req).await).await
   }
 }
 
-impl<API_G: IsApi, API_H: IsApi, BG: ImplsApi<API_G>, BH: ImplsApi<API_H>>
-  ImplsApi<ComposeApi<API_G, API_H>> for ComposeApi<BG, BH>
-{
-  type Err = ComposeError<BG::Err, BH::Err>;
-}
+#[cfg(test)]
+mod test {
+  use super::*;
+  use crate::test::*;
+  use crate::*;
+  struct GApi;
+  define_api! {GApi => {
+    foo, Res<()> => bool;
+  }}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ComposeError<G, H> {
-  G(G),
-  H(H),
-}
+  struct SomeG;
+  impl ImplsMethod<GApi, Res<()>> for SomeG {
+    async fn call_api(&self, req: Res<()>) -> bool {
+      req.is_ok()
+    }
+  }
 
-impl<
-  API_G: IsApi,
-  API_H: IsApi,
-  BG: ImplsApi<API_G> + ImplsApiMethod<API_G, GReq> + Send + Sync,
-  BH: ImplsApi<API_H> + ImplsApiMethod<API_H, M> + Send + Sync,
-  M: ApiMethod<API_H, Res = GReq> + Send,
-  GReq: ApiMethod<API_G>,
-> ImplsApiMethod<ComposeApi<API_G, API_H>, M> for ComposeApi<BG, BH>
-{
-  async fn call_api(
-    &self,
-    req: M,
-  ) -> Result<GReq::Res, <Self as ImplsApi<ComposeApi<API_G, API_H>>>::Err> {
-    let h_res = self.1.call_api(req).await.map_err(ComposeError::H)?;
-    self.0.call_api(h_res).await.map_err(ComposeError::G)
+  //type ComposedApi = Compose<GApi, SomeAPI>;
+  type ComposedImplementor = Compose<SomeG, SomeBackend>;
+
+  #[tokio::test]
+  async fn test() {
+    let backend: ComposedImplementor = Compose(SomeG, SomeBackend::default());
+    assert!(backend.call_api(PostA(true)).await);
+    assert!(!backend.call_api(PostA(true)).await);
   }
 }
+
+// TODO: ComposeRes where API_H methods return results

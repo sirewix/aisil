@@ -1,44 +1,79 @@
 //! Map errors of APIs with [`Into`].
 
-use crate::{ApiMethod, ImplsApiMethod, IsApi};
+use crate::{HasMethod, ImplsMethod, IsApi};
 use std::marker::PhantomData;
 
 /// API-level combinator for [`ErrInto`].
-pub struct ApiErrInto<ErrO, B>(pub B, PhantomData<ErrO>);
+pub struct ErrInto<ErrO, B>(pub B, PhantomData<ErrO>);
 
-/// Map errors of API methods with [`Into`].
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[repr(transparent)]
-#[cfg_attr(feature = "serde", serde(transparent))]
-pub struct ErrInto<B>(pub B);
-
-impl<ErrO, B> ApiErrInto<ErrO, B> {
+impl<ErrO, B> ErrInto<ErrO, B> {
   pub fn new(b: B) -> Self {
     Self(b, PhantomData)
   }
 }
 
-impl<API: IsApi, ErrO> IsApi for ApiErrInto<ErrO, API> {
+impl<API: IsApi, ErrO> IsApi for ErrInto<ErrO, API> {
   type MethodList = API::MethodList;
-  const NAME: &str = API::NAME;
+  const API_NAME: &str = API::API_NAME;
 }
 
-impl<M, R, ErrI, ErrO, API> ApiMethod<ApiErrInto<ErrO, API>> for ErrInto<M>
+impl<M, R, ErrI, ErrO, API> HasMethod<M> for ErrInto<ErrO, API>
 where
-  M: ApiMethod<API, Res = Result<R, ErrI>>,
+  API: HasMethod<M, Res = Result<R, ErrI>>,
 {
   type Res = Result<R, ErrO>;
-  const NAME: &str = M::NAME;
+  const METHOD_NAME: &str = API::METHOD_NAME;
 }
 
-impl<API, M, B, R, ErrO, ErrI> ImplsApiMethod<ApiErrInto<ErrO, API>, ErrInto<M>> for ErrInto<B>
+impl<API, M, B, R, ErrO, ErrI> ImplsMethod<ErrInto<ErrO, API>, M> for ErrInto<ErrO, B>
 where
   ErrO: From<ErrI> + Send + Sync,
-  B: ImplsApiMethod<API, M> + Send + Sync,
-  M: ApiMethod<API, Res = Result<R, ErrI>> + Send + Sync,
+  B: ImplsMethod<API, M> + Send + Sync,
+  API: HasMethod<M, Res = Result<R, ErrI>>,
+  M: Send + Sync,
 {
-  async fn call_api(&self, req: ErrInto<M>) -> Result<R, ErrO> {
-    self.0.call_api(req.0).await.map_err(Into::into)
+  async fn call_api(&self, req: M) -> Result<R, ErrO> {
+    self.0.call_api(req).await.map_err(Into::into)
+  }
+}
+
+#[cfg(test)]
+mod test {
+  #![allow(dead_code)]
+  use super::*;
+  struct SomeApi;
+  crate::define_api! {SomeApi => {
+    foo, Foo => Result<(), ErrI>;
+    bar, Bar => Result<(), ErrI>;
+  }}
+
+  struct Foo;
+  struct Bar;
+  struct ErrI;
+  struct ErrO;
+
+  impl From<ErrI> for ErrO {
+    fn from(_: ErrI) -> ErrO {
+      ErrO
+    }
+  }
+
+  struct SomeImpl;
+  impl ImplsMethod<SomeApi, Foo> for SomeImpl {
+    async fn call_api(&self, _: Foo) -> Result<(), ErrI> {
+      Err(ErrI)
+    }
+  }
+
+  impl ImplsMethod<SomeApi, Bar> for SomeImpl {
+    async fn call_api(&self, _: Bar) -> Result<(), ErrI> {
+      Err(ErrI)
+    }
+  }
+
+  async fn test() {
+    let _: Result<_, ErrI> = SomeImpl.call_api(Foo).await;
+    let _: Result<_, ErrO> = ErrInto::<ErrO, _>::new(SomeImpl).call_api(Foo).await;
+    type WSomeApi = ErrInto<ErrO, SomeApi>;
   }
 }

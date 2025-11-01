@@ -16,7 +16,7 @@ impl <X, R, E> ImplsApi<fn(X) -> Result<R, E>> for fn(X) -> Result<R, E> {
   type Err = E;
 }
 
-impl<X, R, E> ImplsApiMethod<fn(X) -> Result<R, E>, X>
+impl<X, R, E> ImplsMethod<fn(X) -> Result<R, E>, X>
     for fn(X) -> Result<R, E>
     where X: ApiMethod<Self, Res = R> + Send
 {

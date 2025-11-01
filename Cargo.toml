@@ -34,3 +34,10 @@ serde = ["dep:serde"]
 ts = ["dep:ts-rs"]
 tokio = ["dep:tokio"]
 tracing = ["dep:tracing"]
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docs"]
+
+[lints.rust]
+unexpected_cfgs = { level = "allow", check-cfg = ['cfg(docs)'] }

@@ -1,6 +1,6 @@
 //! Axum router builder.
 
-use crate::{ApiMethod, Cons, ImplsApiMethod, Nil};
+use crate::{Cons, HasMethod, ImplsMethod, Nil};
 use axum::{Router, extract::Json, extract::State, routing::post};
 
 /// Builds axum router where each method is `POST /<method_name>`, the request
@@ -18,16 +18,16 @@ pub trait MkAxumRouter<API, E> {
 }
 
 impl<
-  API,
-  H: ApiMethod<API, Res = Res> + serde::de::DeserializeOwned + Send + 'static,
+  API: HasMethod<H, Res = Res>,
+  H: serde::de::DeserializeOwned + Send + 'static,
   Res: serde::Serialize + Send,
-  E: ImplsApiMethod<API, H> + Clone + Send + Sync + 'static,
+  E: ImplsMethod<API, H> + Clone + Send + Sync + 'static,
   T: MkAxumRouter<API, E>,
 > MkAxumRouter<API, E> for Cons<H, T>
 {
   fn router() -> Router<E> {
     T::router().route(
-      &format!("/{}", <H as ApiMethod<API>>::NAME),
+      &format!("/{}", API::METHOD_NAME),
       post(|State(svc): State<E>, Json(request): Json<H>| async move {
         Json(svc.call_api(request).await)
       }),

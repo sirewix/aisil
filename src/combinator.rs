@@ -1,5 +1,6 @@
 //! A few built-in API and implementor combinators.
-// pub mod compose; pub use compose::*;
+pub mod compose;
+pub use compose::*;
 
 pub mod ignore;
 pub use ignore::*;

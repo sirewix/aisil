@@ -1,6 +1,6 @@
 //! Erasing API level errors.
 
-use crate::{ApiMethod, ImplsApiMethod, IsApi};
+use crate::{HasMethod, ImplsMethod, IsApi};
 use documented::DocumentedOpt;
 
 /// Transforming return types of all methods that must be `Result<R, E>` to
@@ -15,29 +15,30 @@ pub struct IgnoreOk<A>(pub A);
 
 impl<API: IsApi> IsApi for IgnoreOk<API> {
   type MethodList = API::MethodList;
-  const NAME: &str = API::NAME;
+  const API_NAME: &str = API::API_NAME;
 }
 
-impl<API: IsApi, R, E, M> ApiMethod<IgnoreOk<API>> for IgnoreOk<M>
+impl<API: IsApi, R, E, M> HasMethod<M> for IgnoreOk<API>
 where
-  M: ApiMethod<API, Res = Result<R, E>>,
+  API: HasMethod<M, Res = Result<R, E>>,
 {
   type Res = Result<(), E>;
-  const NAME: &str = M::NAME;
+  const METHOD_NAME: &str = API::METHOD_NAME;
 }
 
 impl<M: DocumentedOpt> DocumentedOpt for IgnoreOk<M> {
   const DOCS: Option<&str> = M::DOCS;
 }
 
-impl<API, B, E, M, R> ImplsApiMethod<IgnoreOk<API>, IgnoreOk<M>> for IgnoreOk<B>
+impl<API, B, E, M, R> ImplsMethod<IgnoreOk<API>, M> for IgnoreOk<B>
 where
   API: IsApi,
-  B: ImplsApiMethod<API, M> + Send + Sync,
-  M: ApiMethod<API, Res = Result<R, E>> + Send,
+  B: ImplsMethod<API, M> + Send + Sync,
+  API: HasMethod<M, Res = Result<R, E>>,
+  M: Send,
 {
-  async fn call_api(&self, req: IgnoreOk<M>) -> Result<(), E> {
-    let _ = self.0.call_api(req.0).await?;
+  async fn call_api(&self, req: M) -> Result<(), E> {
+    let _ = self.0.call_api(req).await?;
     Ok(())
   }
 }
@@ -51,23 +52,23 @@ pub struct IgnoreRes<A>(pub A);
 
 impl<API: IsApi> IsApi for IgnoreRes<API> {
   type MethodList = API::MethodList;
-  const NAME: &str = API::NAME;
+  const API_NAME: &str = API::API_NAME;
 }
 
-impl<API: IsApi, M: ApiMethod<API>> ApiMethod<IgnoreRes<API>> for M {
+impl<API: IsApi + HasMethod<M>, M> HasMethod<M> for IgnoreRes<API> {
   type Res = ();
-  const NAME: &str = M::NAME;
+  const METHOD_NAME: &str = API::METHOD_NAME;
 }
 
 impl<M: DocumentedOpt> DocumentedOpt for IgnoreRes<M> {
   const DOCS: Option<&str> = M::DOCS;
 }
 
-impl<API, B, M> ImplsApiMethod<IgnoreRes<API>, M> for IgnoreRes<B>
+impl<API, B, M> ImplsMethod<IgnoreRes<API>, M> for IgnoreRes<B>
 where
-  API: IsApi,
-  M: ApiMethod<API> + Send,
-  B: ImplsApiMethod<API, M> + Send + Sync,
+  API: IsApi + HasMethod<M>,
+  M: Send,
+  B: ImplsMethod<API, M> + Send + Sync,
 {
   async fn call_api(&self, req: M) {
     let _ = self.0.call_api(req).await;

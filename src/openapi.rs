@@ -4,7 +4,7 @@
 //!
 //! Use [`gen_openapi`] or [`gen_openapi_yaml`].
 
-use crate::{ApiMethod, Cons, IsApi, Nil};
+use crate::{Cons, HasMethod, IsApi, Nil};
 use aide::openapi::*;
 use documented::DocumentedOpt;
 use indexmap::IndexMap;
@@ -22,9 +22,9 @@ pub trait InsertPathItems<API> {
 }
 
 impl<
-  T: ApiMethod<API, Res = Res> + JsonSchema + DocumentedOpt,
+  T: JsonSchema + DocumentedOpt,
   Res: JsonSchema,
-  API,
+  API: HasMethod<T, Res = Res>,
   N: InsertPathItems<API>,
 > InsertPathItems<API> for Cons<T, N>
 {
@@ -36,7 +36,7 @@ impl<
     let res_schema = Res::json_schema(generator);
 
     paths.insert(
-      <T as ApiMethod<API>>::NAME.to_string(),
+      API::METHOD_NAME.to_string(),
       ReferenceOr::Item(PathItem {
         post: Some(Operation {
           summary: <T as DocumentedOpt>::DOCS.map(|d| d.to_string()),
@@ -105,7 +105,7 @@ where
   API::MethodList::insert_path_item(&mut paths, &mut generator);
   OpenApi {
     info: Info {
-      title: API::NAME.into(),
+      title: API::API_NAME.into(),
       version: "0".into(), // TODO: implement api versioning in `IsApi` trait
       summary: API::DOCS.map(|d| d.into()),
       ..Default::default()

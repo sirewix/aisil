@@ -1,5 +1,5 @@
 #![allow(clippy::bool_assert_comparison)]
-use crate::{ImplsApiMethod, define_api, mk_handler};
+use crate::{ImplsMethod, define_api, mk_handler};
 use documented::DocumentedOpt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
