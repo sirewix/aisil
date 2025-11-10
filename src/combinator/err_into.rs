@@ -2,6 +2,7 @@
 
 use crate::{HasMethod, ImplsMethod, IsApi};
 use core::marker::PhantomData;
+use documented::DocumentedOpt;
 
 /// API-level combinator for [`ErrInto`].
 pub struct ErrInto<ErrO, B>(pub B, PhantomData<ErrO>);
@@ -15,6 +16,10 @@ impl<ErrO, B> ErrInto<ErrO, B> {
 impl<API: IsApi, ErrO> IsApi for ErrInto<ErrO, API> {
   type MethodList = API::MethodList;
   const API_NAME: &str = API::API_NAME;
+}
+
+impl<ErrO, API: DocumentedOpt> DocumentedOpt for ErrInto<ErrO, API> {
+  const DOCS: Option<&str> = API::DOCS;
 }
 
 impl<M, R, ErrI, ErrO, API> HasMethod<M> for ErrInto<ErrO, API>

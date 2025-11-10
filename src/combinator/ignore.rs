@@ -26,8 +26,8 @@ where
   const METHOD_NAME: &str = API::METHOD_NAME;
 }
 
-impl<M: DocumentedOpt> DocumentedOpt for IgnoreOk<M> {
-  const DOCS: Option<&str> = M::DOCS;
+impl<API: DocumentedOpt> DocumentedOpt for IgnoreOk<API> {
+  const DOCS: Option<&str> = API::DOCS;
 }
 
 impl<API, B, E, M, R> ImplsMethod<IgnoreOk<API>, M> for IgnoreOk<B>
@@ -60,8 +60,8 @@ impl<API: IsApi + HasMethod<M>, M> HasMethod<M> for IgnoreRes<API> {
   const METHOD_NAME: &str = API::METHOD_NAME;
 }
 
-impl<M: DocumentedOpt> DocumentedOpt for IgnoreRes<M> {
-  const DOCS: Option<&str> = M::DOCS;
+impl<API: DocumentedOpt> DocumentedOpt for IgnoreRes<API> {
+  const DOCS: Option<&str> = API::DOCS;
 }
 
 impl<API, B, M> ImplsMethod<IgnoreRes<API>, M> for IgnoreRes<B>

@@ -4,7 +4,9 @@
 //!
 //! This is experimental feature implemented because it is possible to implement
 //! rather than a practical need.
+
 use crate::{HasMethod, ImplsMethod, IsApi};
+use documented::DocumentedOpt;
 
 // TODO: make some use of it
 
@@ -19,6 +21,10 @@ pub struct Compose<API_G, API_H>(API_G, API_H);
 impl<API_G: IsApi, API_H: IsApi> IsApi for Compose<API_G, API_H> {
   type MethodList = API_H::MethodList;
   const API_NAME: &str = API_H::API_NAME;
+}
+
+impl<API_G, API_H: DocumentedOpt> DocumentedOpt for Compose<API_G, API_H> {
+  const DOCS: Option<&str> = API_H::DOCS;
 }
 
 impl<API_G, API_H, HReq> HasMethod<HReq> for Compose<API_G, API_H>
@@ -51,6 +57,10 @@ pub struct ComposeRes<API_G, API_H>(API_G, API_H);
 impl<API_G: IsApi, API_H: IsApi> IsApi for ComposeRes<API_G, API_H> {
   type MethodList = API_H::MethodList;
   const API_NAME: &str = API_H::API_NAME;
+}
+
+impl<API_G, API_H: DocumentedOpt> DocumentedOpt for ComposeRes<API_G, API_H> {
+  const DOCS: Option<&str> = API_H::DOCS;
 }
 
 impl<API_G, API_H, HReq, GReq, HErr> HasMethod<HReq> for ComposeRes<API_G, API_H>
