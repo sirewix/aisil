@@ -1,8 +1,8 @@
 //! Client to call APIs over HTTP.
 
 use crate::{HasMethod, ImplsMethod, IsApi, combinator::WithErr};
+use core::marker::PhantomData;
 use reqwest::{Client, Error, Url};
-use std::marker::PhantomData;
 
 // TODO: json-rpc
 

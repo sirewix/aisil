@@ -1,7 +1,7 @@
 //! Simple tracing combinator.
 
 use crate::{HasMethod, ImplsMethod, IsApi};
-use std::fmt::Debug;
+use core::fmt::Debug;
 
 /// Simple tracing combinator.
 ///

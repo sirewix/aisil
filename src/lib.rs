@@ -72,25 +72,49 @@ pub trait ImplsMethod<API: HasMethod<M>, M> {
   fn call_api(&self, _req: M) -> impl Future<Output = API::Res> + Send;
 }
 
-impl<API, M, B> ImplsMethod<API, M> for Box<B>
+/// Wrapper for implementors of [`ImplsMethodBoxed`]
+///
+/// ```ignore
+/// type BoxedSomeAPI = BoxedImpl<Arc<dyn ImplsSomeAPI>>;
+/// ```
+#[derive(Debug, Clone, Copy)]
+#[repr(transparent)]
+pub struct BoxedImpl<B>(pub B);
+
+use core::ops::Deref;
+
+impl<API, M, B> ImplsMethod<API, M> for BoxedImpl<B>
 where
-  API: IsApi + HasMethod<M>,
+  API: IsApi + HasMethod<M> + 'static,
   M: Send,
-  B: ImplsMethod<API, M> + ?Sized,
+  B: Deref + Sync,
+  B::Target: ImplsMethodBoxed<API, M>,
 {
-  fn call_api(&self, req: M) -> impl Future<Output = API::Res> + Send {
-    self.as_ref().call_api(req)
+  async fn call_api(&self, req: M) -> API::Res {
+    self.0.call_api_box(req).await
   }
 }
 
+// no-std feature?
 impl<API, M, B> ImplsMethod<API, M> for std::sync::Arc<B>
 where
   API: IsApi + HasMethod<M>,
   M: Send,
-  B: ImplsMethod<API, M> + ?Sized,
+  B: ImplsMethod<API, M> + Send + Sync + ?Sized,
 {
-  fn call_api(&self, req: M) -> impl Future<Output = API::Res> + Send {
-    self.as_ref().call_api(req)
+  async fn call_api(&self, req: M) -> API::Res {
+    self.as_ref().call_api(req).await
+  }
+}
+
+impl<API, M, B> ImplsMethod<API, M> for Box<B>
+where
+  API: IsApi + HasMethod<M>,
+  M: Send,
+  B: ImplsMethod<API, M> + Send + Sync + ?Sized,
+{
+  async fn call_api(&self, req: M) -> API::Res {
+    self.as_ref().call_api(req).await
   }
 }
 
@@ -101,8 +125,8 @@ pub trait ImplsMethodBoxed<API: HasMethod<M>, M>: Sync {
   fn call_api_box<'s, 'a>(&'s self, _req: M) -> Pin<Box<dyn Future<Output = API::Res> + Send + 'a>>
   where
     's: 'a,
-    Self: 'a,
-    API: 'a,
+    Self: 's,
+    API: 'static,
     M: 'a;
 }
 

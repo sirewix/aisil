@@ -158,3 +158,4 @@ function unwrapResult<R, E>(a: Result<R, E>): R {
 - [ ] json-rpc + openrpc
 - [ ] Allow for non-inlined TS types generation
 - [ ] Debug `ts` feature
+- [ ] no-std feature

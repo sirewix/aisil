@@ -1,7 +1,7 @@
 //! Map errors of APIs with [`Into`].
 
 use crate::{HasMethod, ImplsMethod, IsApi};
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 /// API-level combinator for [`ErrInto`].
 pub struct ErrInto<ErrO, B>(pub B, PhantomData<ErrO>);
