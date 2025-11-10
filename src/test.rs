@@ -24,6 +24,7 @@ pub struct SomeAPI;
 define_api! { SomeAPI => {
   /// Get A
   get_a, GetA => bool;
+  // not documented on purpose
   post_a, PostA => Res<()>;
 } }
 

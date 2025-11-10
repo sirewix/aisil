@@ -2,8 +2,11 @@
 //! Functional composition `api_g(api_h(req))`
 //! `g.call_api(h.call_api(r).await)`
 //!
-//! This is experimental feature.
+//! This is experimental feature implemented because it is possible to implement
+//! rather than a practical need.
 use crate::{HasMethod, ImplsMethod, IsApi};
+
+// TODO: make some use of it
 
 /// Functional composition `api_g(api_h(req))`
 /// `g.call_api(h.call_api(r).await)`
@@ -42,12 +45,46 @@ impl<
   }
 }
 
+/// Similar to [`Compose`] but `API_H` methods must return `Result`s
+pub struct ComposeRes<API_G, API_H>(API_G, API_H);
+
+impl<API_G: IsApi, API_H: IsApi> IsApi for ComposeRes<API_G, API_H> {
+  type MethodList = API_H::MethodList;
+  const API_NAME: &str = API_H::API_NAME;
+}
+
+impl<API_G, API_H, HReq, GReq, HErr> HasMethod<HReq> for ComposeRes<API_G, API_H>
+where
+  API_H: HasMethod<HReq, Res = Result<GReq, HErr>>,
+  API_G: HasMethod<GReq>,
+{
+  type Res = Result<API_G::Res, HErr>;
+  const METHOD_NAME: &str = API_H::METHOD_NAME;
+}
+
+impl<
+  API_G: IsApi + HasMethod<GReq, Res = GRes>,
+  API_H: IsApi + HasMethod<HReq, Res = Result<GReq, HErr>>,
+  GReq: Send,
+  HReq: Send,
+  HErr: Send,
+  GRes,
+  BG: ImplsMethod<API_G, GReq> + Send + Sync,
+  BH: ImplsMethod<API_H, HReq> + Send + Sync,
+> ImplsMethod<ComposeRes<API_G, API_H>, HReq> for ComposeRes<BG, BH>
+{
+  async fn call_api(&self, req: HReq) -> Result<GRes, HErr> {
+    Ok(self.0.call_api(self.1.call_api(req).await?).await)
+  }
+}
+
 #[cfg(test)]
 mod test {
   use super::*;
   use crate::test::*;
   use crate::*;
   struct GApi;
+
   define_api! {GApi => {
     foo, Res<()> => bool;
   }}

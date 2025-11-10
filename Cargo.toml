@@ -3,6 +3,12 @@ name = "aisil"
 description = "A lightweight framework to define APIs as types"
 version = "0.1.0"
 edition = "2024"
+repository = "https://github.com/sirewix/aisil"
+documentation = "https://docs.rs/aisil/latest"
+license = "MIT"
+authors = ["Vlad Zagvozdkin <sirewix@gmail.com>"]
+categories = ["asynchronous"]
+keywords = ["async", "api", "service"]
 
 [dependencies]
 aide = { version = "0.15.1", optional = true }

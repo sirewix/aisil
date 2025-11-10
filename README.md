@@ -1,31 +1,42 @@
 # `aisil`
 
-Typeful rust framework for defining simple APIs
+Lightweight framework to define APIs as types.
 
-This framework supports only narrow subset of HTTP spec, each method must be a POST request with a JSON body, returning a JSON. This constraint allows for abstracting over HTTP methods as over functions, that have one input and one output types. Such abstraction makes reasoning about API type safety much easier.
+`aisil` is designed to be transport and protocol agnostic. At the moment,
+however, only one transport protocol is supported (HTTP's `POST /<method_name>`
+with json bodies). Feel free to extend the base framework with whatever fits
+your requirements.
 
-Note: every feature is optional, see [`Cargo.toml`](./Cargo.toml) for features reference
 
-<!-- TOC GFM -->
+<!-- START doctoc generated TOC please keep comment here to allow auto update -->
+<!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
 
-* [Define API](#define-api)
-* [Implement handler](#implement-handler)
-* [Generate spec](#generate-spec)
-* [Make client calls](#make-client-calls)
-* [Derive TS types](#derive-ts-types)
-* [Things to improve](#things-to-improve)
+- [Define API](#define-api)
+- [Implement service](#implement-service)
+- [Expose service](#expose-service)
+- [Make client calls](#make-client-calls)
+- [Generate spec](#generate-spec)
+- [Derive TS types](#derive-ts-types)
+- [Things to implement/improve](#things-to-implementimprove)
 
-<!-- TOC -->
+<!-- END doctoc generated TOC please keep comment here to allow auto update -->
 
 ## Define API
 
+- A **method** is defined as `Request` → (method name, `Response`)
+  dependency in the context of an API (See `HasMethod` trait).
+
+- An **API** is defined as `ApiMetaType` → `[*]` dependency (See `IsApi` trait),
+  where `[*]` is a heterogeneous list of request types that belong to the API.
+
+An example of an API definition with two methods:
+
 ```rust
 /// Get A
-#[derive(Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Serialize, Deserialize, JsonSchema, TS, DocumentedOpt)]
 pub struct GetA;
 
-// not documented
-#[derive(Clone, Serialize, Deserialize, JsonSchema, TS)]
+#[derive(Serialize, Deserialize, JsonSchema, TS)]
 pub struct PostA(pub bool);
 
 /// Some example api
@@ -33,19 +44,15 @@ pub struct PostA(pub bool);
 pub struct SomeAPI;
 
 define_api! { SomeAPI => {
-  /// Get A
+  // <method_name>, <RequestType> => <ResponseType>;
   get_a, GetA => bool;
-  // not documented method
-  post_a, PostA => Res<()>;
-} }
 
-#[derive(DocumentedOpt)]
-pub struct SomeAPI2;
+  /// Post A
+  post_a, PostA => Result<(), String>;
+} }
 ```
 
-## Implement handler
-
-Implementing http service using `axum` with type checks:
+## Implement service
 
 ```rust
 #[derive(Clone)]
@@ -53,36 +60,29 @@ struct SomeBackend {
   a: Arc<Mutex<bool>>,
 }
 
-impl SomeBackend {
-  pub async fn get_a(&self, _: GetA) -> Res<bool> {
-    Ok(self.a.lock().await.clone())
+impl ImplsMethod<SomeAPI, GetA> for SomeBackend {
+  async fn call_api(&self, _: GetA) -> bool {
+    self.a.lock().await.clone()
   }
-  pub async fn post_a(&self, PostA(new_a): PostA) -> Res<()> {
+}
+
+impl ImplsMethod<SomeAPI, PostA> for SomeBackend {
+  async fn call_api(&self, PostA(new_a): PostA) -> Result<(), String> {
     let mut a = self.a.lock().await;
+    (!*a).then_some(()).ok_or("can't post `a` anymore".to_owned())?;
     *a = new_a;
     Ok(())
   }
 }
-
-mk_handler! {SomeAPI, SomeBackend => {
-  get_a : GetA,
-  post_a : PostA,
-}}
-
-pub fn router() -> axum::Router {
-  let env = SomeBackend {
-    a: Arc::new(Mutex::new(false)),
-  };
-  crate::axum::mk_axum_router::<SomeAPI, SomeBackend>().with_state(env)
-}
 ```
 
-## Generate spec
-
-Generating openapi spec for that API:
+## Expose service
 
 ```rust
-println!("{}", gen_yaml_openapi::<SomeAPI>());
+pub fn router() -> axum::Router {
+  let backend = SomeBackend { a: Arc::new(Mutex::new(false)), };
+  crate::axum::mk_axum_router::<SomeAPI, SomeBackend>().with_state(backend)
+}
 ```
 
 ## Make client calls
@@ -95,6 +95,14 @@ let client = ApiClient::new(Url::parse(client_url).unwrap(), Client::new());
 client.call_api(PostA(true)).await.unwrap().unwrap();
 let new_a = client.call_api(GetA).await.unwrap().unwrap();
 assert_eq!(new_a, true);
+```
+
+## Generate spec
+
+Generating openapi spec for that API:
+
+```rust
+println!("{}", gen_yaml_openapi::<SomeAPI>());
 ```
 
 ## Derive TS types
@@ -145,8 +153,8 @@ function unwrapResult<R, E>(a: Result<R, E>): R {
 }
 ```
 
-## Things to improve
+## Things to implement/improve
 
-- [ ] Remove dependency on rust's `Result` as it's JSON representation is not really convinient for parsing in JS
+- [ ] json-rpc + openrpc
 - [ ] Allow for non-inlined TS types generation
 - [ ] Debug `ts` feature

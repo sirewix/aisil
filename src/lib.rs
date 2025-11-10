@@ -76,7 +76,7 @@ impl<API, M, B> ImplsMethod<API, M> for Box<B>
 where
   API: IsApi + HasMethod<M>,
   M: Send,
-  B: ImplsMethod<API, M>,
+  B: ImplsMethod<API, M> + ?Sized,
 {
   fn call_api(&self, req: M) -> impl Future<Output = API::Res> + Send {
     self.as_ref().call_api(req)
@@ -87,7 +87,7 @@ impl<API, M, B> ImplsMethod<API, M> for std::sync::Arc<B>
 where
   API: IsApi + HasMethod<M>,
   M: Send,
-  B: ImplsMethod<API, M>,
+  B: ImplsMethod<API, M> + ?Sized,
 {
   fn call_api(&self, req: M) -> impl Future<Output = API::Res> + Send {
     self.as_ref().call_api(req)

@@ -1,5 +1,8 @@
 //! A few built-in API and implementor combinators.
+
+#[doc(hidden)]
 pub mod compose;
+#[doc(hidden)]
 pub use compose::*;
 
 pub mod ignore;
