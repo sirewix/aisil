@@ -98,7 +98,7 @@ where
   API::MethodList: InsertPathItems<API>,
   API: IsApi + DocumentedOpt,
 {
-  let mut generator = SchemaGenerator::new(SchemaSettings::draft07().with(|s| {
+  let mut generator = SchemaGenerator::new(SchemaSettings::openapi3().with(|s| {
     s.definitions_path = "#/components/schemas/".into();
   }));
   let mut paths = IndexMap::new();
