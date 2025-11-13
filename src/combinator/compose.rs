@@ -21,6 +21,7 @@ pub struct Compose<API_G, API_H>(API_G, API_H);
 impl<API_G: IsApi, API_H: IsApi> IsApi for Compose<API_G, API_H> {
   type MethodList = API_H::MethodList;
   const API_NAME: &str = API_H::API_NAME;
+  const API_VERSION: &str = API_H::API_VERSION; // not really good
 }
 
 impl<API_G, API_H: DocumentedOpt> DocumentedOpt for Compose<API_G, API_H> {
@@ -57,6 +58,7 @@ pub struct ComposeRes<API_G, API_H>(API_G, API_H);
 impl<API_G: IsApi, API_H: IsApi> IsApi for ComposeRes<API_G, API_H> {
   type MethodList = API_H::MethodList;
   const API_NAME: &str = API_H::API_NAME;
+  const API_VERSION: &str = API_H::API_VERSION; // not really good
 }
 
 impl<API_G, API_H: DocumentedOpt> DocumentedOpt for ComposeRes<API_G, API_H> {
@@ -96,7 +98,7 @@ mod test {
   struct GApi;
 
   define_api! {GApi => {
-    foo, Res<()> => bool;
+    "foo", Res<()> => bool;
   }}
 
   struct SomeG;

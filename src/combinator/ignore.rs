@@ -16,6 +16,7 @@ pub struct IgnoreOk<A>(pub A);
 impl<API: IsApi> IsApi for IgnoreOk<API> {
   type MethodList = API::MethodList;
   const API_NAME: &str = API::API_NAME;
+  const API_VERSION: &str = API::API_VERSION;
 }
 
 impl<API: IsApi, R, E, M> HasMethod<M> for IgnoreOk<API>
@@ -53,6 +54,7 @@ pub struct IgnoreRes<A>(pub A);
 impl<API: IsApi> IsApi for IgnoreRes<API> {
   type MethodList = API::MethodList;
   const API_NAME: &str = API::API_NAME;
+  const API_VERSION: &str = API::API_VERSION;
 }
 
 impl<API: IsApi + HasMethod<M>, M> HasMethod<M> for IgnoreRes<API> {

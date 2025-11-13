@@ -44,9 +44,7 @@ pub mod ts;
 
 #[doc(hidden)]
 pub mod internal {
-  pub use documented::DocumentedOpt;
   pub use paste::paste;
-  pub use trait_set::trait_set;
 }
 
 #[cfg(test)]
@@ -56,13 +54,26 @@ mod test;
 pub trait IsApi {
   /// Heterogeneous list of all request types (which are also methods).
   type MethodList;
+
   /// Name of the API. Currently is set to stringified API type name.
   const API_NAME: &str;
+  const API_VERSION: &str;
 }
 
 pub trait HasMethod<M>: IsApi {
   type Res;
   const METHOD_NAME: &str;
+}
+
+pub trait HasDocumentedMethod<M, SP = ()>: HasMethod<M> {
+  const DOCS: Option<&str>;
+}
+
+pub struct DocumentedViaDocumentedOpt;
+impl<API: HasMethod<M>, M: documented::DocumentedOpt>
+  HasDocumentedMethod<M, DocumentedViaDocumentedOpt> for API
+{
+  const DOCS: Option<&str> = M::DOCS;
 }
 
 /// Generalization over an asyncronous function bound by an API definition.
@@ -167,15 +178,24 @@ impl<E> CallApi for E {
   }
 }
 
-// use frunk::HList maybe?
 pub struct Cons<T, N>(T, N);
 pub struct Nil;
 
 #[macro_export]
 #[doc(hidden)]
-macro_rules! def_method {
-  {$api:ty, $method:ident, $req:ty, $res:ty} => {
-  }
+macro_rules! impl_method {
+  {$api:ty, $method:expr, $req:ty, $res:ty, ()} => {
+    impl $crate::HasMethod<$req> for $api {
+      type Res = $res;
+      const METHOD_NAME: &str = $method;
+    }
+  };
+  {$api:ty, $method:expr, $req:ty, $res:ty, ( $($doc:expr),* ) } => {
+    $crate::impl_method!{$api, $method, $req, $res, ()}
+    impl $crate::HasDocumentedMethod<$req> for $api {
+      const DOCS: Option<&str> = Some(concat!($($doc, "\n"),*).trim_ascii());
+    }
+  };
 }
 
 #[macro_export]
@@ -195,10 +215,10 @@ macro_rules! build_hlist {
 ///   // method_name, RequestType => ResponseType;
 ///
 ///   /// Get A
-///   get_a, GetA => bool;
+///   "get_a", GetA => bool;
 ///
 ///   // not documented method
-///   post_a, PostA => Result<(), ()>;
+///   "post_a", PostA => Result<(), ()>;
 /// } }
 ///
 /// pub struct GetA;
@@ -219,82 +239,60 @@ macro_rules! build_hlist {
 ///   you do, see the source code.
 #[macro_export]
 macro_rules! define_api {
-  { $vis:vis $api:ident => { $(
-    $( #[doc = $doc0:expr] $( #[doc = $doc:expr] )* )?
-    $method:ident, $req:ty => $res:ty;
-  )+ }} => {
-      impl $crate::IsApi for $api {
-        type MethodList = $crate::build_hlist!($($req),+);
-        const API_NAME: &str = stringify!($api);
-      }
+  { $vis:vis $api:ident $(, version = $version:expr)? $(, name = $name:expr)? => {
+    $( $( #[doc = $doc:expr] )* $method:literal, $req:ty => $res:ty; )+
+  }} => {
+    $crate::impl_is_api!{$vis $api, ($($req),+) $(, version = $version)? $(, name = $name)?}
+    $( $crate::impl_method!{ $api, $method, $req, $res, ($($doc),*) } )+
+  };
 
-      // per method HasMethod impls
-      $(
-        impl $crate::HasMethod<$req> for $api {
-          type Res = $res;
-          const METHOD_NAME: &str = stringify!($method);
-        }
-        $(
-          impl $crate::internal::DocumentedOpt for $req {
-            const DOCS: Option<&str> = Some(concat!($doc0, $($doc, "\n"),*).trim_ascii());
-          }
-        )?
-      )+
-
-      $crate::internal::paste! {
-        // creating custom macro for the api to give users unlimited extendability powers
-        #[allow(unused_macros)]
-        macro_rules! [<per_ $api _method>] {
-          ($m:path) => {
-            $m!{$vis $api, $(($method, $req)),*}
-          }
-        }
-
-        // the module trick here because there's no easy way to put #[allow(dead_code)]
-        // on trait aliases with `trait_set`
-        #[doc(hidden)]
-        #[allow(non_snake_case)]
-        $vis mod [<$api _default_trait_aliases>] {
-          #![allow(dead_code)]
-          use super::*;
-          // using that custom macro to derive two default trait aliases
-          [<per_ $api _method>]!($crate::mk_impls_api_method_trait_alias);
-          [<per_ $api _method>]!($crate::mk_impls_api_method_boxed_trait_alias);
-        }
-
-        #[allow(unused_imports)]
-        $vis use [<$api _default_trait_aliases>]::*;
-      }
+  { $vis:vis $api:ident $(, name = $name:expr)? $(, version = $version:expr)? => {
+    $( $( #[doc = $doc:expr] )* $method:literal, $req:ty => $res:ty; )+
+  }} => {
+    $crate::impl_is_api!{$vis $api, ($($req),+) $(, version = $version)? $(, name = $name)?}
+    $( $crate::impl_method!{ $api, $method, $req, $res, ($($doc),*) } )+
   };
 }
 
-#[macro_export]
 #[doc(hidden)]
-macro_rules! mk_impls_api_method_trait_alias {
-	($vis:vis $api:ty, $(($n:ident, $t:ty)),*) => {
-		$crate::internal::paste! {
-			$crate::internal::trait_set! {
-        /// Trait alias for [`aisil::ImplsMethod`] for all methods of [`$api`]
-				$vis trait [<Impls $api>] = $($crate::ImplsMethod<$api, $t> + )*;
-			}
-		}
-	}
-}
-
 #[macro_export]
-#[doc(hidden)]
-macro_rules! mk_impls_api_method_boxed_trait_alias {
-	($vis:vis $api:ty, $(($n:ident, $t:ty)),*) => {
-		$crate::internal::paste! {
-			$crate::internal::trait_set! {
-        /// Trait alias for [`aisil::ImplsMethodBoxed`] for all methods of [`$api`]
-				$vis trait [<Impls $api Boxed>] = $($crate::ImplsMethodBoxed<$api, $t> + )*;
-			}
-		}
-	}
-}
+macro_rules! impl_is_api {
+  { $vis:vis $api:ident, ($($req:ty),+), version = $version:expr, name = $name:expr } => {
+      $crate::impl_is_api!{$vis $api, ($($req),+), $version, $name}
+  };
+  { $vis:vis $api:ident, ($($req:ty),+), version = $version:expr } => {
+      $crate::impl_is_api!{$vis $api, ($($req),+), $version, stringify!($api)}
+  };
+  { $vis:vis $api:ident, ($($req:ty),+), name = $name:expr } => {
+      $crate::impl_is_api!{$vis $api, ($($req),+), "0.0.0", $name}
+  };
+  { $vis:vis $api:ident, ($($req:ty),+) } => {
+      $crate::impl_is_api!{$vis $api, ($($req),+), "0.0.0", stringify!($api)}
+  };
+  {$vis:vis $api:ident, ($($req:ty),+), $version:expr, $name:expr} => {
+      impl $crate::IsApi for $api {
+        type MethodList = $crate::build_hlist!($($req),+);
+        const API_NAME: &str = $name;
+        const API_VERSION: &str = $version;
+      }
 
-// TODO: add mk_impls_api_method_tower_trait_alias for tower::Service
+      $crate::internal::paste! {
+        // creating custom macro for the api to give users more extendability powers
+        #[allow(unused_macros)]
+        macro_rules! [<per_ $api _method>] {
+          ($m:path) => { $m!{$($req),*} }
+        }
+
+        #[allow(dead_code)]
+        $vis trait [<Impls $api>]: $($crate::ImplsMethod<$api, $req> +)* {}
+        impl<B: $($crate::ImplsMethod<$api, $req> +)*> [<Impls $api>] for B {}
+
+        #[allow(dead_code)]
+        $vis trait [<Impls $api Boxed>]: $($crate::ImplsMethodBoxed<$api, $req> +)* {}
+        impl<B: $($crate::ImplsMethodBoxed<$api, $req> +)*> [<Impls $api Boxed>] for B {}
+      }
+  };
+}
 
 // experimental
 #[doc(hidden)]

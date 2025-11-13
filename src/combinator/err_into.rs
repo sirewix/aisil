@@ -16,6 +16,7 @@ impl<ErrO, B> ErrInto<ErrO, B> {
 impl<API: IsApi, ErrO> IsApi for ErrInto<ErrO, API> {
   type MethodList = API::MethodList;
   const API_NAME: &str = API::API_NAME;
+  const API_VERSION: &str = API::API_VERSION;
 }
 
 impl<ErrO, API: DocumentedOpt> DocumentedOpt for ErrInto<ErrO, API> {
@@ -48,8 +49,8 @@ mod test {
   use super::*;
   struct SomeApi;
   crate::define_api! {SomeApi => {
-    foo, Foo => Result<(), ErrI>;
-    bar, Bar => Result<(), ErrI>;
+    "foo", Foo => Result<(), ErrI>;
+    "bar", Bar => Result<(), ErrI>;
   }}
 
   struct Foo;

@@ -23,16 +23,16 @@ pub struct SomeAPI;
 
 define_api! { SomeAPI => {
   /// Get A
-  get_a, GetA => bool;
+  "get_a", GetA => bool;
   // not documented on purpose
-  post_a, PostA => Res<()>;
+  "post_a", PostA => Res<()>;
 } }
 
 #[derive(DocumentedOpt)]
 pub struct SomeAPI2;
 
 define_api! { SomeAPI2 => {
-  get_b, GetA => bool;
+  "get_b", GetA => bool;
 } }
 
 #[derive(Clone, Serialize, Deserialize, JsonSchema, TS, DocumentedOpt)]
@@ -115,4 +115,49 @@ async fn axum_reqwest() {
   assert!(client.call_api(PostA(true)).await.unwrap().is_err());
 
   server_thread.abort();
+}
+
+mod test_macro_1 {
+  #![allow(dead_code)]
+  struct SomeAPI;
+  crate::define_api! { SomeAPI, name = "Some API" => {
+    /// Get A
+    "get_a", super::GetA => bool;
+  } }
+}
+
+mod test_macro_2 {
+  #![allow(dead_code)]
+  struct SomeAPI;
+  crate::define_api! { SomeAPI, version = "1.1.0" => {
+    /// Get A
+    "get_a", super::GetA => bool;
+  } }
+}
+
+mod test_macro_3 {
+  #![allow(dead_code)]
+  struct SomeAPI;
+  crate::define_api! { SomeAPI, name = "Some API", version = "1.1.0" => {
+    /// Get A
+    "get_a", super::GetA => bool;
+  } }
+}
+
+mod test_macro_4 {
+  #![allow(dead_code)]
+  struct SomeAPI;
+  crate::define_api! { SomeAPI, name = "Some API", version = "1.1.0" => {
+    /// Get A
+    "get_a", super::GetA => bool;
+  } }
+}
+
+mod test_macro_5 {
+  #![allow(dead_code)]
+  struct SomeAPI;
+  crate::define_api! { SomeAPI, version = "1.1.0", name = "Some API" => {
+    /// Get A
+    "get_a", super::GetA => bool;
+  } }
 }
