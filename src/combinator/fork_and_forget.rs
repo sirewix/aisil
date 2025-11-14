@@ -4,7 +4,7 @@ use crate::{HasMethod, ImplsMethod, IsApi};
 /// Spawns a new tokio task.
 ///
 /// Requires API methods to return `()`. You probably want to use this in
-/// combination with [`super::ignore`] and [`super::tracing`] combinators.
+/// combination with [`super::IgnoreRes`] and [`super::tracing`] combinators.
 ///
 /// **Implementor** combinator.
 #[derive(Debug, Clone, Copy)]

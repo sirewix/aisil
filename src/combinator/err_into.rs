@@ -4,7 +4,10 @@ use crate::{HasMethod, ImplsMethod, IsApi};
 use core::marker::PhantomData;
 use documented::DocumentedOpt;
 
-/// API-level combinator for [`ErrInto`].
+/// Combinator to cast errors with [`Into`]
+///
+/// Both **API** combinator and **implementor** combinator.
+#[repr(transparent)]
 pub struct ErrInto<ErrO, B>(pub B, PhantomData<ErrO>);
 
 impl<ErrO, B> ErrInto<ErrO, B> {
@@ -14,7 +17,7 @@ impl<ErrO, B> ErrInto<ErrO, B> {
 }
 
 impl<API: IsApi, ErrO> IsApi for ErrInto<ErrO, API> {
-  type MethodList = API::MethodList;
+  type Methods = API::Methods;
   const API_NAME: &str = API::API_NAME;
   const API_VERSION: &str = API::API_VERSION;
 }

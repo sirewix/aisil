@@ -5,21 +5,21 @@ pub mod compose;
 #[doc(hidden)]
 pub use compose::*;
 
-pub mod ignore;
+mod ignore;
 pub use ignore::*;
 
-pub mod err_into;
+mod err_into;
 pub use err_into::*;
 
-pub mod with_err;
+mod with_err;
 pub use with_err::*;
 
 #[cfg(feature = "tokio")]
-pub mod fork_and_forget;
+mod fork_and_forget;
 #[cfg(feature = "tokio")]
 pub use fork_and_forget::*;
 
 #[cfg(feature = "tracing")]
 pub mod tracing;
-#[cfg(feature = "tracing")]
-pub use tracing::*;
+//#[cfg(feature = "tracing")]
+//pub use tracing::*;

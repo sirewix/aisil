@@ -20,26 +20,38 @@
 //!
 //! - An **implementor** is a type that implements an API via [`ImplsMethod`].
 //!   The `ImplsMethod` trait is somewhat similar to `tower::Service` and other
-//!   similar traits. It is possible to use only the **core functionality** of
-//!   this crate in combination with any "service trait". But since `tower` is
-//!   quite old and low-level and there's no established industry standards
-//!   alternatives, this crate uses `ImplsMethod` to define the extra
-//!   functionality.
+//!   similar traits.
+//!
+//! It is possible to use only the **core functionality** of this crate in
+//! combination with any "service trait". But since `tower` is quite old and
+//! low-level and there's no established industry standard alternatives, this
+//! crate uses `ImplsMethod` to define that extra functionality.
 
 #![cfg_attr(any(docs, docsrs), feature(doc_cfg))]
 
-use core::future::Future;
-use core::pin::Pin;
-
-#[cfg(feature = "axum")]
-pub mod axum;
 pub mod combinator;
-#[cfg(feature = "openapi")]
-pub mod openapi;
-#[cfg(feature = "reqwest")]
-pub mod reqwest;
-#[cfg(feature = "ts")]
-pub mod ts;
+
+mod json_rpc;
+mod post_json;
+
+/// Utilities for exposing an API implementor as a server.
+pub mod server {
+  #[cfg(feature = "json-rpc-server")]
+  pub use crate::json_rpc::server as json_rpc;
+  #[cfg(feature = "post-json-axum")]
+  pub use crate::post_json::server as post_json;
+}
+
+/// Utilities for calling an API as a client.
+#[cfg(feature = "client")]
+pub mod client {
+  pub use crate::json_rpc::client as json_rpc;
+  pub use crate::post_json::client as post_json;
+}
+
+/// Utilities to generate specifications, IDLs, SDKs, etc.
+pub mod generate;
+
 // pub mod func;
 
 #[doc(hidden)]
@@ -50,25 +62,34 @@ pub mod internal {
 #[cfg(test)]
 mod test;
 
+use core::future::Future;
+use core::pin::Pin;
+
 /// API definition as a type. Use [`define_api`] macro to define this impl.
 pub trait IsApi {
   /// Heterogeneous list of all request types (which are also methods).
-  type MethodList;
+  type Methods;
 
   /// Name of the API. Currently is set to stringified API type name.
   const API_NAME: &str;
   const API_VERSION: &str;
 }
 
+/// Type dependency from `Request` → `Response` in the context of an API
+///
+/// API types must define this trait for each of their methods.
 pub trait HasMethod<M>: IsApi {
   type Res;
   const METHOD_NAME: &str;
 }
 
-pub trait HasDocumentedMethod<M, SP = ()>: HasMethod<M> {
+/// Documentation for methods
+pub trait HasDocumentedMethod<M, SP>: HasMethod<M> {
   const DOCS: Option<&str>;
 }
 
+/// Trait impl specialization marker to allow specifying docs with
+/// [`documented::DocumentedOpt`]
 pub struct DocumentedViaDocumentedOpt;
 impl<API: HasMethod<M>, M: documented::DocumentedOpt>
   HasDocumentedMethod<M, DocumentedViaDocumentedOpt> for API
@@ -178,9 +199,6 @@ impl<E> CallApi for E {
   }
 }
 
-pub struct Cons<T, N>(T, N);
-pub struct Nil;
-
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_method {
@@ -192,7 +210,7 @@ macro_rules! impl_method {
   };
   {$api:ty, $method:expr, $req:ty, $res:ty, ( $($doc:expr),* ) } => {
     $crate::impl_method!{$api, $method, $req, $res, ()}
-    impl $crate::HasDocumentedMethod<$req> for $api {
+    impl $crate::HasDocumentedMethod<$req, ()> for $api {
       const DOCS: Option<&str> = Some(concat!($($doc, "\n"),*).trim_ascii());
     }
   };
@@ -201,8 +219,8 @@ macro_rules! impl_method {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! build_hlist {
-  () => { $crate::Nil };
-  ($type:ty $(, $rest:ty)*) => { $crate::Cons<$type, $crate::build_hlist!($($rest),*)> };
+  () => { () };
+  ($type:ty $(, $rest:ty)*) => { ($type, $crate::build_hlist!($($rest),*)) };
 }
 
 /// Main macro to define APIs in `aisil` format.
@@ -271,7 +289,7 @@ macro_rules! impl_is_api {
   };
   {$vis:vis $api:ident, ($($req:ty),+), $version:expr, $name:expr} => {
       impl $crate::IsApi for $api {
-        type MethodList = $crate::build_hlist!($($req),+);
+        type Methods = $crate::build_hlist!($($req),+);
         const API_NAME: &str = $name;
         const API_VERSION: &str = $version;
       }

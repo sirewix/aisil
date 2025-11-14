@@ -7,14 +7,12 @@ use documented::DocumentedOpt;
 /// `Result<(), E>`, ignoring the result in `Ok`, but preserving the `Err`.
 ///
 /// Both **API** combinator and **implementor** combinator.
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(transparent)]
-#[cfg_attr(feature = "serde", serde(transparent))]
 pub struct IgnoreOk<A>(pub A);
 
 impl<API: IsApi> IsApi for IgnoreOk<API> {
-  type MethodList = API::MethodList;
+  type Methods = API::Methods;
   const API_NAME: &str = API::API_NAME;
   const API_VERSION: &str = API::API_VERSION;
 }
@@ -52,7 +50,7 @@ where
 pub struct IgnoreRes<A>(pub A);
 
 impl<API: IsApi> IsApi for IgnoreRes<API> {
-  type MethodList = API::MethodList;
+  type Methods = API::Methods;
   const API_NAME: &str = API::API_NAME;
   const API_VERSION: &str = API::API_VERSION;
 }

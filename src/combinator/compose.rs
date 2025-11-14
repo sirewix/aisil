@@ -19,7 +19,7 @@ use documented::DocumentedOpt;
 pub struct Compose<API_G, API_H>(API_G, API_H);
 
 impl<API_G: IsApi, API_H: IsApi> IsApi for Compose<API_G, API_H> {
-  type MethodList = API_H::MethodList;
+  type Methods = API_H::Methods;
   const API_NAME: &str = API_H::API_NAME;
   const API_VERSION: &str = API_H::API_VERSION; // not really good
 }
@@ -56,7 +56,7 @@ impl<
 pub struct ComposeRes<API_G, API_H>(API_G, API_H);
 
 impl<API_G: IsApi, API_H: IsApi> IsApi for ComposeRes<API_G, API_H> {
-  type MethodList = API_H::MethodList;
+  type Methods = API_H::Methods;
   const API_NAME: &str = API_H::API_NAME;
   const API_VERSION: &str = API_H::API_VERSION; // not really good
 }

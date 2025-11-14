@@ -1,29 +1,33 @@
 //! Generates API definition in TypeScript language.
 
-use crate::{Cons, HasMethod, IsApi, Nil};
+use crate::{HasMethod, IsApi};
 use ts_rs::TS;
 
-pub struct TsMethod {
-  pub method_name: String,
-  pub request_type: String,
-  pub response_type: String,
+struct TsMethod {
+  method_name: String,
+  request_type: String,
+  response_type: String,
 }
 
 pub struct TsApi {
-  pub types: Vec<String>,
-  pub methods: Vec<TsMethod>,
+  types: Vec<String>,
+  methods: Vec<TsMethod>,
 }
 
 pub trait TraverseTsClient<API> {
   fn add_methods(ts_api: &mut TsApi);
 }
 
-impl<API> TraverseTsClient<API> for Nil {
+impl<API> TraverseTsClient<API> for () {
   fn add_methods(_ts_api: &mut TsApi) {}
 }
 
-impl<T: TS, Res: TS, API: HasMethod<T, Res = Res>, N: TraverseTsClient<API>> TraverseTsClient<API>
-  for Cons<T, N>
+impl<T, N, Res, API> TraverseTsClient<API> for (T, N)
+where
+  T: TS,
+  Res: TS,
+  API: HasMethod<T, Res = Res>,
+  N: TraverseTsClient<API>,
 {
   fn add_methods(ts_api: &mut TsApi) {
     ts_api.methods.push(TsMethod {
@@ -38,11 +42,11 @@ impl<T: TS, Res: TS, API: HasMethod<T, Res = Res>, N: TraverseTsClient<API>> Tra
 /// Generates API definition in TypeScript language.
 pub fn gen_ts_api<API>() -> String
 where
-  API::MethodList: TraverseTsClient<API>,
+  API::Methods: TraverseTsClient<API>,
   API: IsApi,
 {
   let mut ts_api = TsApi { types: Vec::new(), methods: Vec::new() };
-  API::MethodList::add_methods(&mut ts_api);
+  API::Methods::add_methods(&mut ts_api);
   [
     ts_api.types.join("\n"),
     "type Request<M> = ".into(),
