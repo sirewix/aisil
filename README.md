@@ -7,6 +7,7 @@ however, only one transport protocol is supported (HTTP's `POST /<method_name>`
 with json bodies). Feel free to extend the base framework with whatever fits
 your requirements.
 
+See docs at [docs.rs/aisil](https://docs.rs/aisil/latest).
 
 <!-- START doctoc generated TOC please keep comment here to allow auto update -->
 <!-- DON'T EDIT THIS SECTION, INSTEAD RE-RUN doctoc TO UPDATE -->
@@ -16,7 +17,7 @@ your requirements.
 - [Expose service](#expose-service)
 - [Make client calls](#make-client-calls)
 - [Generate spec](#generate-spec)
-- [Derive TS types](#derive-ts-types)
+- [Generate TS types](#generate-ts-types)
 - [Things to implement/improve](#things-to-implementimprove)
 
 <!-- END doctoc generated TOC please keep comment here to allow auto update -->
@@ -45,6 +46,8 @@ pub struct SomeAPI;
 
 define_api! { SomeAPI => {
   // <method_name>, <RequestType> => <ResponseType>;
+
+  // documentation for this method will be taken from DocumentedOpt
   get_a, GetA => bool;
 
   /// Post A
@@ -55,7 +58,7 @@ define_api! { SomeAPI => {
 ## Implement service
 
 ```rust
-#[derive(Clone)]
+#[derive(Clone, Default)]
 struct SomeBackend {
   a: Arc<Mutex<bool>>,
 }
@@ -78,34 +81,65 @@ impl ImplsMethod<SomeAPI, PostA> for SomeBackend {
 
 ## Expose service
 
+As HTTP `POST /<method_name>`:
+
 ```rust
 pub fn router() -> axum::Router {
-  let backend = SomeBackend { a: Arc::new(Mutex::new(false)), };
-  crate::axum::mk_axum_router::<SomeAPI, SomeBackend>().with_state(backend)
+  let backend = SomeBackend::default();
+  aisil::post_json::mk_post_json_router::<SomeAPI, SomeBackend>().with_state(backend)
 }
+```
+
+or as JsonRPC:
+
+```rust
+let backend = SomeBackend::default();
+Router::new().route(
+  "/rpc",
+  post(async move |State(svc), Json(request): Json<server::JsonRpcRequest>| {
+    Json(aisil::server::json_rpc::json_rpc_router::<SomeAPI, SomeBackend>(&svc, request).await)
+  }),
+).with_state(state);
 ```
 
 ## Make client calls
 
 Use that API to make type safe client calls:
 
+Either HTTP `POST /<method_name>`:
+
 ```rust
-use reqwest::{Url, Client};
-let client = ApiClient::new(Url::parse(client_url).unwrap(), Client::new());
-client.call_api(PostA(true)).await.unwrap().unwrap();
-let new_a = client.call_api(GetA).await.unwrap().unwrap();
+let client = PostJsonClient::new(Url::parse(client_url)?, reqwest::Client::new());
+client.call_api(PostA(true)).await?.unwrap();
+let new_a = client.call_api(GetA).await?;
+assert_eq!(new_a, true);
+```
+
+or as JsonRPC:
+
+```rust
+let client = JsonRpcClient::new(Method::POST, Url::parse(client_url)?, reqwest::Client::new());
+client.call_api(PostA(true)).await?.unwrap();
+let new_a = client.call_api(GetA).await?;
 assert_eq!(new_a, true);
 ```
 
 ## Generate spec
 
-Generating openapi spec for that API:
+OpenAPI for HTTP `POST /<method_name>`:
+
 
 ```rust
-println!("{}", gen_yaml_openapi::<SomeAPI>());
+println!("{}", gen_openapi_yaml::<SomeAPI, _>());
 ```
 
-## Derive TS types
+OpenRPC for JsonRPC:
+
+```rust
+println!("{}", gen_openrpc_yaml::<SomeAPI, _>());
+```
+
+## Generate TS types
 
 ```rust
 println!("{}", gen_ts_api::<SomeAPI>());
@@ -155,7 +189,6 @@ function unwrapResult<R, E>(a: Result<R, E>): R {
 
 ## Things to implement/improve
 
-- [ ] json-rpc + openrpc
 - [ ] Allow for non-inlined TS types generation
 - [ ] Debug `ts` feature
 - [ ] no-std feature

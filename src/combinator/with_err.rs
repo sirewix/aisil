@@ -7,10 +7,11 @@ use documented::DocumentedOpt;
 /// Wraps API method responses into `Result`.
 ///
 /// **API** combinator.
+#[repr(transparent)]
 pub struct WithErr<Err, B>(pub B, PhantomData<Err>);
 
 impl<API: IsApi, Err> IsApi for WithErr<Err, API> {
-  type MethodList = API::MethodList;
+  type Methods = API::Methods;
   const API_NAME: &str = API::API_NAME;
   const API_VERSION: &str = API::API_VERSION;
 }

@@ -1,29 +1,34 @@
-//! Axum router builder.
+//! Make a server as HTTP `POST /<method_name>` with JSON bodies
+//!
+//! See [`mk_post_json_router`]
 
-use crate::{Cons, HasMethod, ImplsMethod, Nil};
+use crate::{HasMethod, ImplsMethod, IsApi};
 use axum::{Router, extract::Json, extract::State, routing::post};
+use serde::{Serialize, de::DeserializeOwned};
 
 /// Builds axum router where each method is `POST /<method_name>`, the request
 /// body is expected to be a json and the result is also returned as json.
-pub fn mk_axum_router<API: crate::IsApi, S>() -> Router<S>
+pub fn mk_post_json_router<API: crate::IsApi, S>() -> Router<S>
 where
-  API::MethodList: MkAxumRouter<API, S>,
+  API::Methods: MkPostJsonRouter<API, S>,
 {
-  API::MethodList::router()
+  API::Methods::router()
 }
 
 /// API method list traversal trait for building axum router for each method.
-pub trait MkAxumRouter<API, E> {
+///
+/// Use [`mk_post_json_router`].
+pub trait MkPostJsonRouter<API, E> {
   fn router() -> Router<E>;
 }
 
 impl<
-  API: HasMethod<H, Res = Res>,
-  H: serde::de::DeserializeOwned + Send + 'static,
-  Res: serde::Serialize + Send,
+  API: IsApi + HasMethod<H, Res = Res>,
+  H: DeserializeOwned + Send + 'static,
+  Res: Serialize + Send,
   E: ImplsMethod<API, H> + Clone + Send + Sync + 'static,
-  T: MkAxumRouter<API, E>,
-> MkAxumRouter<API, E> for Cons<H, T>
+  T: MkPostJsonRouter<API, E>,
+> MkPostJsonRouter<API, E> for (H, T)
 {
   fn router() -> Router<E> {
     T::router().route(
@@ -35,7 +40,7 @@ impl<
   }
 }
 
-impl<API, E: Clone + Send + Sync + 'static> MkAxumRouter<API, E> for Nil {
+impl<API, E: Clone + Send + Sync + 'static> MkPostJsonRouter<API, E> for () {
   fn router() -> Router<E> {
     Router::new()
   }

@@ -1,7 +1,7 @@
 // could be useful some day
 
 impl <X, R, E> IsApi for fn(X) -> Result<R, E> {
-  type MethodList = build_hlist!(X);
+  type Methods = build_hlist!(X);
     const DESCRIPTION: &str = "Anonimous function";
     const NAME: &str = "fn";
 }

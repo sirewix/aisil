@@ -1,11 +1,12 @@
 #![allow(clippy::bool_assert_comparison)]
-use crate::{ImplsMethod, define_api, mk_handler};
 use documented::DocumentedOpt;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use ts_rs::TS;
+
+use crate::{ImplsMethod, define_api, mk_handler};
 
 pub type Err = String;
 
@@ -71,12 +72,6 @@ mk_handler! {SomeAPI2, SomeBackend => {
   get_b : GetA,
 }}
 
-#[cfg(feature = "axum")]
-pub fn router() -> ::axum::Router {
-  let env = SomeBackend::default();
-  crate::axum::mk_axum_router::<SomeAPI, SomeBackend>().with_state(env)
-}
-
 #[tokio::test]
 async fn direct_api_call() {
   use crate::CallApi;
@@ -85,36 +80,6 @@ async fn direct_api_call() {
   let new_a = backend.call_api_x::<SomeAPI2, _>(GetA).await;
   assert_eq!(new_a, true);
   assert!(backend.call_api(PostA(true)).await.is_err());
-}
-
-#[cfg(all(feature = "reqwest", feature = "axum"))]
-#[tokio::test]
-async fn axum_reqwest() {
-  use crate::reqwest::ApiClient;
-  use std::net::Ipv4Addr;
-  use tokio::time::{Duration, sleep};
-
-  let listener = tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).await.unwrap();
-  let server = ::axum::serve(listener, router());
-
-  let client: ApiClient<SomeAPI> = ApiClient::new(
-    reqwest::Url::parse(&format!("http://{}/", server.local_addr().unwrap())).unwrap(),
-    reqwest::Client::new(),
-  )
-  .unwrap();
-
-  let server_thread = tokio::spawn(async move {
-    server.await.unwrap();
-  });
-
-  sleep(Duration::from_millis(100)).await;
-
-  client.call_api(PostA(true)).await.unwrap().unwrap();
-  let new_a = client.call_api(GetA).await.unwrap();
-  assert_eq!(new_a, true);
-  assert!(client.call_api(PostA(true)).await.unwrap().is_err());
-
-  server_thread.abort();
 }
 
 mod test_macro_1 {
