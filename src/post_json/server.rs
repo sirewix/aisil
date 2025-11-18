@@ -25,7 +25,7 @@ pub trait MkPostJsonRouter<API, E> {
 impl<
   API: IsApi + HasMethod<H, Res = Res>,
   H: DeserializeOwned + Send + 'static,
-  Res: Serialize + Send,
+  Res: Serialize,
   E: ImplsMethod<API, H> + Clone + Send + Sync + 'static,
   T: MkPostJsonRouter<API, E>,
 > MkPostJsonRouter<API, E> for (H, T)
