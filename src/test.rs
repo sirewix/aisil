@@ -15,7 +15,7 @@ pub type Res<A> = Result<A, Err>;
 #[derive(Clone, Serialize, Deserialize, JsonSchema, TS)]
 pub struct GetA;
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema, TS, DocumentedOpt)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema, TS)]
 pub struct PostA(pub bool);
 
 /// Some example api
@@ -36,7 +36,7 @@ define_api! { SomeAPI2 => {
   "get_b", GetA => bool;
 } }
 
-#[derive(Clone, Serialize, Deserialize, JsonSchema, TS, DocumentedOpt)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema, TS)]
 #[allow(dead_code)]
 pub struct GetB;
 

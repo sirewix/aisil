@@ -81,20 +81,7 @@ pub trait IsApi {
 pub trait HasMethod<M>: IsApi {
   type Res;
   const METHOD_NAME: &str;
-}
-
-/// Documentation for methods
-pub trait HasDocumentedMethod<M, SP>: HasMethod<M> {
-  const DOCS: Option<&str>;
-}
-
-/// Trait impl specialization marker to allow specifying docs with
-/// [`documented::DocumentedOpt`]
-pub struct DocumentedViaDocumentedOpt;
-impl<API: HasMethod<M>, M: documented::DocumentedOpt>
-  HasDocumentedMethod<M, DocumentedViaDocumentedOpt> for API
-{
-  const DOCS: Option<&str> = M::DOCS;
+  const METHOD_DOCS: Option<&str>;
 }
 
 /// Generalization over an asyncronous function bound by an API definition.
@@ -202,17 +189,18 @@ impl<E> CallApi for E {
 #[macro_export]
 #[doc(hidden)]
 macro_rules! impl_method {
-  {$api:ty, $method:expr, $req:ty, $res:ty, ()} => {
+  {$api:ty, $method:expr, $req:ty, $res:ty, docs = $docs:expr} => {
     impl $crate::HasMethod<$req> for $api {
       type Res = $res;
       const METHOD_NAME: &str = $method;
+      const METHOD_DOCS: Option<&str> = $docs;
     }
   };
-  {$api:ty, $method:expr, $req:ty, $res:ty, ( $($doc:expr),* ) } => {
-    $crate::impl_method!{$api, $method, $req, $res, ()}
-    impl $crate::HasDocumentedMethod<$req, ()> for $api {
-      const DOCS: Option<&str> = Some(concat!($($doc, "\n"),*).trim_ascii());
-    }
+  {$api:ty, $method:expr, $req:ty, $res:ty, () } => {
+    $crate::impl_method!{$api, $method, $req, $res, docs = None}
+  };
+  {$api:ty, $method:expr, $req:ty, $res:ty, ( $($doc:expr),+ ) } => {
+    $crate::impl_method!{$api, $method, $req, $res, docs = Some(concat!($($doc, "\n"),*).trim_ascii())}
   };
 }
 

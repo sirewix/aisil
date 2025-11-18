@@ -19,6 +19,7 @@ impl<API: IsApi, Err> IsApi for WithErr<Err, API> {
 impl<API: IsApi + HasMethod<M>, M, Err> HasMethod<M> for WithErr<Err, API> {
   type Res = Result<API::Res, Err>;
   const METHOD_NAME: &str = API::METHOD_NAME;
+  const METHOD_DOCS: Option<&str> = API::METHOD_DOCS;
 }
 
 impl<Err, API: DocumentedOpt> DocumentedOpt for WithErr<Err, API> {

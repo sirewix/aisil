@@ -10,26 +10,26 @@ use indexmap::IndexMap;
 use schemars::{JsonSchema, SchemaGenerator, generate::SchemaSettings};
 
 use crate::generate::split_docs;
-use crate::{HasDocumentedMethod, HasMethod, IsApi};
+use crate::{HasMethod, IsApi};
 
 /// API methods traversal trait for collecting methods and inserting request and
 /// response schemas and their dependencies schema in [`SchemaGenerator`].
 ///
 /// Don't use this trait directly, use [`gen_openapi`] or [`gen_openapi_yaml`]
 /// instead.
-pub trait GenerateOpenApi<API, MS> {
+pub trait GenerateOpenApi<API> {
   fn generate_openapi(
     paths: &mut IndexMap<String, ReferenceOr<PathItem>>,
     generator: &mut SchemaGenerator,
   );
 }
 
-impl<T, Res, API, N, TS, NS> GenerateOpenApi<API, (TS, NS)> for (T, N)
+impl<T, Res, API, N> GenerateOpenApi<API> for (T, N)
 where
   T: JsonSchema,
   Res: JsonSchema,
-  API: HasMethod<T, Res = Res> + HasDocumentedMethod<T, TS>,
-  N: GenerateOpenApi<API, NS>,
+  API: HasMethod<T, Res = Res>,
+  N: GenerateOpenApi<API>,
 {
   fn generate_openapi(
     paths: &mut IndexMap<String, ReferenceOr<PathItem>>,
@@ -38,7 +38,7 @@ where
     let req_schema = T::json_schema(generator);
     let res_schema = Res::json_schema(generator);
 
-    let (summary, description) = split_docs(<API as HasDocumentedMethod<T, TS>>::DOCS);
+    let (summary, description) = split_docs(<API as HasMethod<T>>::METHOD_DOCS);
     paths.insert(
       API::METHOD_NAME.to_string(),
       ReferenceOr::Item(PathItem {
@@ -88,7 +88,7 @@ where
   }
 }
 
-impl<API> GenerateOpenApi<API, ()> for () {
+impl<API> GenerateOpenApi<API> for () {
   fn generate_openapi(
     _paths: &mut IndexMap<String, ReferenceOr<PathItem>>,
     _gen: &mut SchemaGenerator,
@@ -99,11 +99,11 @@ impl<API> GenerateOpenApi<API, ()> for () {
 /// Generate OpenAPI schema.
 ///
 /// ```ignore
-/// gen_openapi<SomeAPI, _>
+/// gen_openapi<SomeAPI>
 /// ```
-pub fn gen_openapi<API, MS>() -> OpenApi
+pub fn gen_openapi<API>() -> OpenApi
 where
-  API::Methods: GenerateOpenApi<API, MS>,
+  API::Methods: GenerateOpenApi<API>,
   API: IsApi + DocumentedOpt,
 {
   let mut generator = SchemaGenerator::new(SchemaSettings::openapi3().with(|s| {
@@ -139,15 +139,15 @@ where
 /// [`gen_openapi`] wrapper that produces OpenAPI spec as YAML string.
 ///
 /// ```ignore
-/// gen_openapi_yaml<SomeAPI, _>
+/// gen_openapi_yaml<SomeAPI>
 /// ```
 #[cfg(feature = "post-json-openapi-yaml")]
-pub fn gen_openapi_yaml<API, MS>() -> String
+pub fn gen_openapi_yaml<API>() -> String
 where
-  API::Methods: GenerateOpenApi<API, MS>,
+  API::Methods: GenerateOpenApi<API>,
   API: IsApi + DocumentedOpt,
 {
-  serde_yaml::to_string(&gen_openapi::<API, MS>()).unwrap()
+  serde_yaml::to_string(&gen_openapi::<API>()).unwrap()
 }
 
 #[cfg(feature = "post-json-openapi-yaml")]
@@ -156,7 +156,7 @@ fn test_openapi() {
   use crate::test::SomeAPI;
   use serde_yaml::Value;
 
-  let spec = serde_yaml::to_value(gen_openapi::<SomeAPI, _>()).unwrap();
+  let spec = serde_yaml::to_value(gen_openapi::<SomeAPI>()).unwrap();
   let spec_ref: Value = serde_yaml::from_str(
     r#"
     openapi: 3.1.0

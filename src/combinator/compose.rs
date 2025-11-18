@@ -35,6 +35,7 @@ where
 {
   type Res = API_G::Res;
   const METHOD_NAME: &str = API_H::METHOD_NAME;
+  const METHOD_DOCS: Option<&str> = API_H::METHOD_DOCS;
 }
 
 impl<
@@ -72,6 +73,7 @@ where
 {
   type Res = Result<API_G::Res, HErr>;
   const METHOD_NAME: &str = API_H::METHOD_NAME;
+  const METHOD_DOCS: Option<&str> = API_H::METHOD_DOCS;
 }
 
 impl<

@@ -9,13 +9,13 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 
 use crate::generate::split_docs;
-use crate::{HasDocumentedMethod, HasMethod, IsApi};
+use crate::{HasMethod, IsApi};
 
 /// Generate OpenRPC schema.
-pub fn gen_openrpc<API, SP>() -> impl Serialize
+pub fn gen_openrpc<API>() -> impl Serialize
 where
   API: IsApi + DocumentedOpt,
-  API::Methods: GenerateOpenRpc<API, SP>,
+  API::Methods: GenerateOpenRpc<API>,
 {
   let mut methods = Vec::new();
   let mut generator = SchemaSettings::draft07().into_generator();
@@ -37,32 +37,32 @@ where
 /// [`gen_openrpc`] wrapper that produces OpenRpc spec as YAML string.
 ///
 /// ```ignore
-/// gen_openrpc_yaml<SomeAPI, _>
+/// gen_openrpc_yaml<SomeAPI>
 /// ```
 #[cfg(feature = "json-rpc-openrpc-yaml")]
 pub fn gen_openrpc_yaml<API, MS>() -> String
 where
-  API::Methods: GenerateOpenRpc<API, MS>,
+  API::Methods: GenerateOpenRpc<API>,
   API: IsApi + DocumentedOpt,
 {
-  serde_yaml::to_string(&gen_openrpc::<API, MS>()).unwrap()
+  serde_yaml::to_string(&gen_openrpc::<API>()).unwrap()
 }
 
 /// Don't use this trait directly, use [`gen_openrpc`] or [`gen_openrpc_yaml`]
 /// instead.
-pub trait GenerateOpenRpc<API, SP> {
+pub trait GenerateOpenRpc<API> {
   fn generate_openrpc(methods: &mut Vec<OpenRpcMethodDoc>, generator: &mut SchemaGenerator);
 }
 
-impl<API, H, T, DM, DMT> GenerateOpenRpc<API, (DM, DMT)> for (H, T)
+impl<API, H, T> GenerateOpenRpc<API> for (H, T)
 where
-  API: IsApi + HasMethod<H> + HasDocumentedMethod<H, DM>,
+  API: IsApi + HasMethod<H>,
   H: JsonSchema,
   <API as HasMethod<H>>::Res: JsonSchema,
-  T: GenerateOpenRpc<API, DMT>,
+  T: GenerateOpenRpc<API>,
 {
   fn generate_openrpc(methods: &mut Vec<OpenRpcMethodDoc>, generator: &mut SchemaGenerator) {
-    let (summary, description) = split_docs(<API as HasDocumentedMethod<H, DM>>::DOCS);
+    let (summary, description) = split_docs(<API as HasMethod<H>>::METHOD_DOCS);
     let doc = OpenRpcMethodDoc {
       name: API::METHOD_NAME.into(),
       summary,
@@ -91,7 +91,7 @@ where
   }
 }
 
-impl<API> GenerateOpenRpc<API, ()> for () {
+impl<API> GenerateOpenRpc<API> for () {
   fn generate_openrpc(_: &mut Vec<OpenRpcMethodDoc>, _: &mut SchemaGenerator) {}
 }
 
@@ -161,7 +161,7 @@ mod tests {
 
   #[test]
   fn openrpc() {
-    let spec = serde_yaml::to_value(super::gen_openrpc::<SomeAPI, _>()).unwrap();
+    let spec = serde_yaml::to_value(super::gen_openrpc::<SomeAPI>()).unwrap();
     let spec_ref: Value = serde_yaml::from_str(
       r#"
       openrpc: 1.3.0

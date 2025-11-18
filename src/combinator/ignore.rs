@@ -23,6 +23,7 @@ where
 {
   type Res = Result<(), E>;
   const METHOD_NAME: &str = API::METHOD_NAME;
+  const METHOD_DOCS: Option<&str> = API::METHOD_DOCS;
 }
 
 impl<API: DocumentedOpt> DocumentedOpt for IgnoreOk<API> {
@@ -58,6 +59,7 @@ impl<API: IsApi> IsApi for IgnoreRes<API> {
 impl<API: IsApi + HasMethod<M>, M> HasMethod<M> for IgnoreRes<API> {
   type Res = ();
   const METHOD_NAME: &str = API::METHOD_NAME;
+  const METHOD_DOCS: Option<&str> = API::METHOD_DOCS;
 }
 
 impl<API: DocumentedOpt> DocumentedOpt for IgnoreRes<API> {

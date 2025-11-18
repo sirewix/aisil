@@ -130,13 +130,13 @@ OpenAPI for HTTP `POST /<method_name>`:
 
 
 ```rust
-println!("{}", gen_openapi_yaml::<SomeAPI, _>());
+println!("{}", gen_openapi_yaml::<SomeAPI>());
 ```
 
 OpenRPC for JsonRPC:
 
 ```rust
-println!("{}", gen_openrpc_yaml::<SomeAPI, _>());
+println!("{}", gen_openrpc_yaml::<SomeAPI>());
 ```
 
 ## Generate TS types

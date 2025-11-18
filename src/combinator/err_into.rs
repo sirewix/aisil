@@ -32,6 +32,7 @@ where
 {
   type Res = Result<R, ErrO>;
   const METHOD_NAME: &str = API::METHOD_NAME;
+  const METHOD_DOCS: Option<&str> = API::METHOD_DOCS;
 }
 
 impl<API, M, B, R, ErrO, ErrI> ImplsMethod<ErrInto<ErrO, API>, M> for ErrInto<ErrO, B>
