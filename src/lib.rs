@@ -30,6 +30,7 @@
 #![cfg_attr(any(docs, docsrs), feature(doc_cfg))]
 
 pub mod combinator;
+pub mod injection;
 
 mod json_rpc;
 mod post_json;
