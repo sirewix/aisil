@@ -289,10 +289,12 @@ macro_rules! impl_is_api {
           ($m:path) => { $m!{$($req),*} }
         }
 
+        #[doc = concat!("Trait alias for `ImplsMethod<", stringify!($api), ", M>` for all of the methods.")]
         #[allow(dead_code)]
         $vis trait [<Impls $api>]: $($crate::ImplsMethod<$api, $req> +)* {}
         impl<B: $($crate::ImplsMethod<$api, $req> +)*> [<Impls $api>] for B {}
 
+        #[doc = concat!("Trait alias for `ImplsMethodBoxed<", stringify!($api), ", M>` for all of the methods.")]
         #[allow(dead_code)]
         $vis trait [<Impls $api Boxed>]: $($crate::ImplsMethodBoxed<$api, $req> +)* {}
         impl<B: $($crate::ImplsMethodBoxed<$api, $req> +)*> [<Impls $api Boxed>] for B {}
