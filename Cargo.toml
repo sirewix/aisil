@@ -1,7 +1,7 @@
 [package]
 name = "aisil"
 description = "A lightweight framework to define APIs as types"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2024"
 repository = "https://github.com/sirewix/aisil"
 documentation = "https://docs.rs/aisil/latest"

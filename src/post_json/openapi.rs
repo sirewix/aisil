@@ -40,7 +40,7 @@ where
 
     let (summary, description) = split_docs(<API as HasMethod<T>>::METHOD_DOCS);
     paths.insert(
-      API::METHOD_NAME.to_string(),
+      format!("/{}", API::METHOD_NAME),
       ReferenceOr::Item(PathItem {
         post: Some(Operation {
           summary,
@@ -165,7 +165,7 @@ fn test_openapi() {
       summary: Some example api
       version: '0.0.0'
     paths:
-      get_a:
+      /get_a:
         post:
           summary: Get A
           requestBody:
@@ -181,7 +181,7 @@ fn test_openapi() {
                 application/json:
                   schema:
                     type: boolean
-      post_a:
+      /post_a:
         post:
           # summary: Post A
           requestBody:
